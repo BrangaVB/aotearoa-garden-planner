@@ -38,6 +38,7 @@ interface Props {
   diagnoses: DiagnosisEvent[];
   harvests: HarvestLog[];
   pendingSyncCount: number;
+  focusSection?: 'all' | 'ai' | 'journal';
   onProfileUpdated: (updated: GardenProfile) => void;
   onWorkspaceChanged: () => Promise<void>;
   onUnlockPro: () => Promise<void>;
@@ -50,6 +51,7 @@ export function JournalScreen({
   diagnoses,
   harvests,
   pendingSyncCount,
+  focusSection = 'all',
   onProfileUpdated,
   onWorkspaceChanged,
   onUnlockPro,
@@ -192,91 +194,100 @@ export function JournalScreen({
     [harvests]
   );
 
+  const showAi = focusSection === 'all' || focusSection === 'ai';
+  const showJournal = focusSection === 'all' || focusSection === 'journal';
+
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionTitle}>AI Diagnostics & Biosecurity</Text>
-      <View style={styles.card}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.cardTitle}>Plant, Pest & NPPA Weed Scanner</Text>
-          <Text style={styles.badge}>
-            {quota.remainingTotal} scans left ({quota.usedThisMonth}/{quota.monthlyLimit})
-          </Text>
-        </View>
-        <TextInput
-          style={styles.input}
-          value={diagNotes}
-          onChangeText={setDiagNotes}
-          placeholder="Describe photo/symptoms (e.g. 'wandering tradescantia' or 'curled tomato leaves')"
-          placeholderTextColor="#64748B"
-        />
-        {diagError && <Text style={styles.errorText}>{diagError}</Text>}
-        <View style={styles.rowBetween}>
-          <Pressable
-            style={[styles.primaryBtn, { flex: 1 }, diagBusy && styles.disabledBtn]}
-            onPress={() => void handleRunDiagnosis()}
-            disabled={diagBusy}
-          >
-            <Text style={styles.primaryBtnText}>
-              {diagBusy ? 'Analysing...' : 'Run Diagnostic Scan'}
-            </Text>
-          </Pressable>
-          <Pressable style={styles.outlineBtn} onPress={() => void onBuyAiCredits()}>
-            <Text style={styles.outlineBtnText}>{AI_PACK_PRICE_NZD}</Text>
-          </Pressable>
-        </View>
-
-        {diagnoses.slice(0, 3).map((d) => (
-          <View key={d.id} style={[styles.subCard, d.isNppaWeed && styles.nppaBox]}>
-            <Text style={styles.cardTitle}>
-              {d.isNppaWeed ? '⚠️ ' : ''}
-              {d.topDiagnosis} ({Math.round(d.confidence * 100)}%)
-            </Text>
-            {d.treatmentSteps.map((step) => (
-              <Text key={step} style={styles.cardText}>
-                • {step}
+      {showAi && (
+        <>
+          <Text style={styles.sectionTitle}>AI Diagnostics & Biosecurity</Text>
+          <View style={styles.card}>
+            <View style={styles.rowBetween}>
+              <Text style={styles.cardTitle}>Plant, Pest & NPPA Weed Scanner</Text>
+              <Text style={styles.badge}>
+                {quota.remainingTotal} scans left ({quota.usedThisMonth}/{quota.monthlyLimit})
               </Text>
+            </View>
+            <TextInput
+              style={styles.input}
+              value={diagNotes}
+              onChangeText={setDiagNotes}
+              placeholder="Describe photo/symptoms (e.g. 'wandering tradescantia' or 'curled tomato leaves')"
+              placeholderTextColor="#64748B"
+            />
+            {diagError && <Text style={styles.errorText}>{diagError}</Text>}
+            <View style={styles.rowBetween}>
+              <Pressable
+                style={[styles.primaryBtn, { flex: 1 }, diagBusy && styles.disabledBtn]}
+                onPress={() => void handleRunDiagnosis()}
+                disabled={diagBusy}
+              >
+                <Text style={styles.primaryBtnText}>
+                  {diagBusy ? 'Analysing...' : 'Run Diagnostic Scan'}
+                </Text>
+              </Pressable>
+              <Pressable style={styles.outlineBtn} onPress={() => void onBuyAiCredits()}>
+                <Text style={styles.outlineBtnText}>{AI_PACK_PRICE_NZD}</Text>
+              </Pressable>
+            </View>
+
+            {diagnoses.slice(0, 3).map((d) => (
+              <View key={d.id} style={[styles.subCard, d.isNppaWeed && styles.nppaBox]}>
+                <Text style={styles.cardTitle}>
+                  {d.isNppaWeed ? '⚠️ ' : ''}
+                  {d.topDiagnosis} ({Math.round(d.confidence * 100)}%)
+                </Text>
+                {d.treatmentSteps.map((step) => (
+                  <Text key={step} style={styles.cardText}>
+                    • {step}
+                  </Text>
+                ))}
+              </View>
             ))}
           </View>
-        ))}
-      </View>
+        </>
+      )}
 
-      <Text style={styles.sectionTitle}>AR / LiDAR Bed Mapper (Phase 3)</Text>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Measure Bed Footprint</Text>
-        <Text style={styles.cardMeta}>
-          Capture 4 corners via ARKit/ARCore plane detection or enter/adjust dimensions manually.
-        </Text>
-        <Pressable style={styles.outlineBtn} onPress={handleSimulateArCapture}>
-          <Text style={styles.outlineBtnText}>Capture AR Plane Corners</Text>
-        </Pressable>
-        {arStatus && <Text style={styles.cardText}>{arStatus}</Text>}
-        <TextInput
-          style={styles.input}
-          value={arBedName}
-          onChangeText={setArBedName}
-          placeholder="Bed name"
-          placeholderTextColor="#64748B"
-        />
-        <View style={styles.rowBetween}>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={arWidthCm}
-            onChangeText={setArWidthCm}
-            keyboardType="numeric"
-            placeholder="Width cm"
-          />
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={arLengthCm}
-            onChangeText={setArLengthCm}
-            keyboardType="numeric"
-            placeholder="Length cm"
-          />
-        </View>
-        <Pressable style={styles.primaryBtn} onPress={() => void handleSaveArBed()}>
-          <Text style={styles.primaryBtnText}>Save Measured Bed</Text>
-        </Pressable>
-      </View>
+      {showJournal && (
+        <>
+          <Text style={styles.sectionTitle}>AR / LiDAR Bed Mapper (Phase 3)</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Measure Bed Footprint</Text>
+            <Text style={styles.cardMeta}>
+              Capture 4 corners via ARKit/ARCore plane detection or enter/adjust dimensions manually.
+            </Text>
+            <Pressable style={styles.outlineBtn} onPress={handleSimulateArCapture}>
+              <Text style={styles.outlineBtnText}>Capture AR Plane Corners</Text>
+            </Pressable>
+            {arStatus && <Text style={styles.cardText}>{arStatus}</Text>}
+            <TextInput
+              style={styles.input}
+              value={arBedName}
+              onChangeText={setArBedName}
+              placeholder="Bed name"
+              placeholderTextColor="#64748B"
+            />
+            <View style={styles.rowBetween}>
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                value={arWidthCm}
+                onChangeText={setArWidthCm}
+                keyboardType="numeric"
+                placeholder="Width cm"
+              />
+              <TextInput
+                style={[styles.input, { flex: 1 }]}
+                value={arLengthCm}
+                onChangeText={setArLengthCm}
+                keyboardType="numeric"
+                placeholder="Length cm"
+              />
+            </View>
+            <Pressable style={styles.primaryBtn} onPress={() => void handleSaveArBed()}>
+              <Text style={styles.primaryBtnText}>Save Measured Bed</Text>
+            </Pressable>
+          </View>
 
       <Text style={styles.sectionTitle}>Harvest & Yield Journal ({totalHarvestKg} kg total)</Text>
       <View style={styles.card}>
@@ -352,6 +363,8 @@ export function JournalScreen({
         </Pressable>
         {syncMessage && <Text style={styles.cardText}>{syncMessage}</Text>}
       </View>
+        </>
+      )}
     </View>
   );
 }

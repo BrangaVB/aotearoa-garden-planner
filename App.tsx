@@ -61,7 +61,17 @@ import {
   WateringRecommendation
 } from './src/types/domain';
 
-type Tab = 'Today' | 'Beds' | 'Canvas' | 'Journal' | 'Catalog' | 'Pests';
+type Tab = 'Today' | 'Garden' | 'Catalog' | 'Pests' | 'Journal';
+type GardenSubTab = 'Beds' | 'Canvas';
+type PestSubTab = 'AI' | 'Guide';
+
+const NAV_ITEMS: { key: Tab; icon: string; label: string }[] = [
+  { key: 'Today', icon: '💧', label: 'Today' },
+  { key: 'Garden', icon: '🌱', label: 'Garden' },
+  { key: 'Catalog', icon: '🌿', label: 'Catalog' },
+  { key: 'Pests', icon: '🔍', label: 'Pests & AI' },
+  { key: 'Journal', icon: '📓', label: 'Journal' }
+];
 
 const CATALOG_CATEGORIES: ('All' | PlantCategory)[] = [
   'All',
@@ -85,7 +95,10 @@ export default function App() {
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [forecast, setForecast] = useState<DailyWeatherPoint[]>([]);
   const [weatherSource, setWeatherSource] = useState<WeatherDataSource>('fallback');
+
   const [tab, setTab] = useState<Tab>('Today');
+  const [gardenSubTab, setGardenSubTab] = useState<GardenSubTab>('Beds');
+  const [pestSubTab, setPestSubTab] = useState<PestSubTab>('Guide');
 
   // UI state for filters, task completion, and restriction reporting
   const [catalogQuery, setCatalogQuery] = useState('');
@@ -301,19 +314,21 @@ export default function App() {
     weatherSource === 'live'
       ? 'Live Open-Meteo'
       : weatherSource === 'cache'
-      ? 'Cached Open-Meteo'
-      : 'Offline NZ Normals';
+      ? 'Cached Weather'
+      : 'Offline Normals';
 
   return (
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
       <View style={styles.header}>
         <Text style={styles.headerSub}>
-          {profile.postcode} · {profile.suburb} · {councilRule.stageLabel}
+          {profile.postcode} · {profile.suburb} · {climateZone.region}
         </Text>
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>Aotearoa Garden</Text>
-          <Text style={styles.weatherPill}>{weatherBadgeLabel}</Text>
+          <View style={styles.weatherPill}>
+            <Text style={styles.weatherPillText}>{weatherBadgeLabel}</Text>
+          </View>
         </View>
       </View>
 
@@ -329,7 +344,9 @@ export default function App() {
                       : 'COUNCIL WATER STATUS'}
                   </Text>
                   <Text style={styles.cardTitle}>{councilRule.authorityName}</Text>
-                  <Text style={styles.cardMeta}>{councilRule.allowedHoursLabel}</Text>
+                  <Text style={styles.cardMeta}>
+                    {councilRule.stageLabel} · {councilRule.allowedHoursLabel}
+                  </Text>
                 </View>
                 <Pressable
                   style={styles.outlineBtn}
@@ -395,9 +412,23 @@ export default function App() {
             <Text style={styles.sectionTitle}>Smart Watering Today</Text>
             {wateringRecs.map((rec) => (
               <View key={rec.zoneId} style={styles.card}>
-                <Text style={styles.cardTitle}>{rec.headline}</Text>
-                <Text style={styles.cardText}>{rec.reason}</Text>
-                <Text style={styles.cardMeta}>{rec.councilComplianceNote}</Text>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.cardTitle}>{rec.zoneName}</Text>
+                  <View
+                    style={[
+                      styles.statusPill,
+                      rec.action === 'SKIP_RAIN'
+                        ? styles.pillSkip
+                        : rec.action === 'WATER_NOW'
+                        ? styles.pillWater
+                        : styles.pillRestrict
+                    ]}
+                  >
+                    <Text style={styles.statusPillText}>{rec.action.replace(/_/g, ' ')}</Text>
+                  </View>
+                </View>
+                <Text style={styles.cardText}>{rec.headline}</Text>
+                <Text style={styles.cardMeta}>{rec.reason}</Text>
                 {rec.rainwaterTip && <Text style={styles.rainwaterTip}>💧 {rec.rainwaterTip}</Text>}
                 {rec.totalZoneLitres > 0 && (
                   <Pressable style={styles.btn} onPress={() => handleMarkWatered(rec)}>
@@ -436,50 +467,50 @@ export default function App() {
           </>
         )}
 
-        {tab === 'Beds' && (
-          <BedBuilderScreen
-            profile={profile}
-            zones={zones}
-            plantingsByZone={plantingsByZone}
-            rotationHistoryByZone={rotationHistoryByZone}
-            onWorkspaceChanged={() => loadWorkspace(profile)}
-          />
-        )}
+        {tab === 'Garden' && (
+          <>
+            <View style={styles.segmentedBar}>
+              {([
+                { key: 'Beds', label: '🌱 Beds & Grid' },
+                { key: 'Canvas', label: '☀️ 2D Sun Canvas' }
+              ] as { key: GardenSubTab; label: string }[]).map((seg) => {
+                const active = gardenSubTab === seg.key;
+                return (
+                  <Pressable
+                    key={seg.key}
+                    onPress={() => setGardenSubTab(seg.key)}
+                    style={[styles.segmentedBtn, active && styles.segmentedBtnActive]}
+                  >
+                    <Text style={[styles.segmentedText, active && styles.segmentedTextActive]}>
+                      {seg.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
 
-        {tab === 'Canvas' && (
-          <CanvasScreen
-            profile={profile}
-            zones={zones}
-            obstacles={obstacles}
-            onWorkspaceChanged={() => loadWorkspace(profile)}
-            onUnlockPro={async () => {
-              const updated = await unlockProGarden(profile);
-              setProfile(updated);
-              await loadWorkspace(updated);
-            }}
-          />
-        )}
-
-        {tab === 'Journal' && (
-          <JournalScreen
-            profile={profile}
-            zones={zones}
-            diagnoses={diagnoses}
-            harvests={harvests}
-            pendingSyncCount={pendingSyncCount}
-            onProfileUpdated={setProfile}
-            onWorkspaceChanged={() => loadWorkspace(profile)}
-            onUnlockPro={async () => {
-              const updated = await unlockProGarden(profile);
-              setProfile(updated);
-              await loadWorkspace(updated);
-            }}
-            onBuyAiCredits={async () => {
-              const updated = await purchaseAiCreditPack(profile);
-              setProfile(updated);
-              await loadWorkspace(updated);
-            }}
-          />
+            {gardenSubTab === 'Beds' ? (
+              <BedBuilderScreen
+                profile={profile}
+                zones={zones}
+                plantingsByZone={plantingsByZone}
+                rotationHistoryByZone={rotationHistoryByZone}
+                onWorkspaceChanged={() => loadWorkspace(profile)}
+              />
+            ) : (
+              <CanvasScreen
+                profile={profile}
+                zones={zones}
+                obstacles={obstacles}
+                onWorkspaceChanged={() => loadWorkspace(profile)}
+                onUnlockPro={async () => {
+                  const updated = await unlockProGarden(profile);
+                  setProfile(updated);
+                  await loadWorkspace(updated);
+                }}
+              />
+            )}
+          </>
         )}
 
         {tab === 'Catalog' && (
@@ -534,58 +565,132 @@ export default function App() {
 
         {tab === 'Pests' && (
           <>
-            <Text style={styles.sectionTitle}>
-              Offline NZ Pest & Disease Field Guide ({filteredPests.length})
-            </Text>
-            <TextInput
-              style={styles.searchInput}
-              value={pestQuery}
-              onChangeText={setPestQuery}
-              placeholder="Search pest, host plant (e.g. Feijoa, Tomato), or symptom..."
-              placeholderTextColor="#64748B"
-            />
-            {filteredPests.map((pest) => (
-              <View key={pest.id} style={styles.card}>
-                <Text style={styles.badge}>{pest.type}</Text>
-                <Text style={styles.cardTitle}>
-                  {pest.name}
-                  {pest.teReoOrAltName ? ` · ${pest.teReoOrAltName}` : ''}
+            <View style={styles.segmentedBar}>
+              {([
+                { key: 'Guide', label: '🐛 Pest Field Guide' },
+                { key: 'AI', label: '📷 AI Diagnostics' }
+              ] as { key: PestSubTab; label: string }[]).map((seg) => {
+                const active = pestSubTab === seg.key;
+                return (
+                  <Pressable
+                    key={seg.key}
+                    onPress={() => setPestSubTab(seg.key)}
+                    style={[styles.segmentedBtn, active && styles.segmentedBtnActive]}
+                  >
+                    <Text style={[styles.segmentedText, active && styles.segmentedTextActive]}>
+                      {seg.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {pestSubTab === 'AI' ? (
+              <JournalScreen
+                profile={profile}
+                zones={zones}
+                diagnoses={diagnoses}
+                harvests={harvests}
+                pendingSyncCount={pendingSyncCount}
+                focusSection="ai"
+                onProfileUpdated={setProfile}
+                onWorkspaceChanged={() => loadWorkspace(profile)}
+                onUnlockPro={async () => {
+                  const updated = await unlockProGarden(profile);
+                  setProfile(updated);
+                  await loadWorkspace(updated);
+                }}
+                onBuyAiCredits={async () => {
+                  const updated = await purchaseAiCreditPack(profile);
+                  setProfile(updated);
+                  await loadWorkspace(updated);
+                }}
+              />
+            ) : (
+              <>
+                <Text style={styles.sectionTitle}>
+                  Offline NZ Pest & Disease Field Guide ({filteredPests.length})
                 </Text>
-                <Text style={styles.cardMeta}>Hosts: {pest.hostPlants.join(', ')}</Text>
-                <Text style={styles.cardText}>Symptoms: {pest.symptoms}</Text>
-                <Text style={styles.cardText}>Organic Remedy: {pest.organicRemedy}</Text>
-                <Text style={styles.cardMeta}>Prevention: {pest.preventionTip}</Text>
-              </View>
-            ))}
+                <TextInput
+                  style={styles.searchInput}
+                  value={pestQuery}
+                  onChangeText={setPestQuery}
+                  placeholder="Search pest, host plant (e.g. Feijoa, Tomato), or symptom..."
+                  placeholderTextColor="#64748B"
+                />
+                {filteredPests.map((pest) => (
+                  <View key={pest.id} style={styles.card}>
+                    <Text style={styles.badge}>{pest.type}</Text>
+                    <Text style={styles.cardTitle}>
+                      {pest.name}
+                      {pest.teReoOrAltName ? ` · ${pest.teReoOrAltName}` : ''}
+                    </Text>
+                    <Text style={styles.cardMeta}>Hosts: {pest.hostPlants.join(', ')}</Text>
+                    <Text style={styles.cardText}>Symptoms: {pest.symptoms}</Text>
+                    <Text style={styles.cardText}>Organic Remedy: {pest.organicRemedy}</Text>
+                    <Text style={styles.cardMeta}>Prevention: {pest.preventionTip}</Text>
+                  </View>
+                ))}
+              </>
+            )}
           </>
+        )}
+
+        {tab === 'Journal' && (
+          <JournalScreen
+            profile={profile}
+            zones={zones}
+            diagnoses={diagnoses}
+            harvests={harvests}
+            pendingSyncCount={pendingSyncCount}
+            focusSection="journal"
+            onProfileUpdated={setProfile}
+            onWorkspaceChanged={() => loadWorkspace(profile)}
+            onUnlockPro={async () => {
+              const updated = await unlockProGarden(profile);
+              setProfile(updated);
+              await loadWorkspace(updated);
+            }}
+            onBuyAiCredits={async () => {
+              const updated = await purchaseAiCreditPack(profile);
+              setProfile(updated);
+              await loadWorkspace(updated);
+            }}
+          />
         )}
       </ScrollView>
 
       <View style={styles.navBar}>
-        {(['Today', 'Beds', 'Canvas', 'Journal', 'Catalog', 'Pests'] as Tab[]).map((t) => (
-          <Pressable
-            key={t}
-            onPress={() => setTab(t)}
-            style={[styles.navItem, tab === t && styles.navItemActive]}
-          >
-            <Text style={[styles.navText, tab === t && styles.navTextActive]} numberOfLines={1}>
-              {t}
-            </Text>
-          </Pressable>
-        ))}
+        {NAV_ITEMS.map((item) => {
+          const active = tab === item.key;
+          return (
+            <Pressable
+              key={item.key}
+              onPress={() => setTab(item.key)}
+              style={[styles.navItem, active && styles.navItemActive]}
+            >
+              <Text style={styles.navIcon}>{item.icon}</Text>
+              <Text style={[styles.navText, active && styles.navTextActive]} numberOfLines={1}>
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#F8FAFC' },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  safe: { flex: 1, backgroundColor: '#F6F7F4' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#F6F7F4' },
   header: {
     paddingHorizontal: 18,
     paddingTop: 12,
-    paddingBottom: 10,
-    backgroundColor: '#166534'
+    paddingBottom: 14,
+    backgroundColor: '#14532D',
+    borderBottomLeftRadius: 18,
+    borderBottomRightRadius: 18
   },
   headerRow: {
     flexDirection: 'row',
@@ -596,23 +701,25 @@ const styles = StyleSheet.create({
   headerSub: { color: '#BBF7D0', fontSize: 12, fontWeight: '600' },
   headerTitle: { color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
   weatherPill: {
-    backgroundColor: '#14532D',
-    color: '#DCFCE7',
-    fontSize: 11,
-    fontWeight: '700',
-    paddingHorizontal: 8,
+    backgroundColor: '#166534',
+    paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 999
+  },
+  weatherPillText: {
+    color: '#DCFCE7',
+    fontSize: 11,
+    fontWeight: '700'
   },
   body: { padding: 16, gap: 12 },
   sectionTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A', marginTop: 4 },
   card: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 16,
+    padding: 15,
     borderWidth: 1,
-    borderColor: '#E2E8F0',
-    gap: 5
+    borderColor: '#E5E7EB',
+    gap: 6
   },
   nppaCard: { borderColor: '#DC2626', backgroundColor: '#FEF2F2' },
   frostCard: { borderColor: '#2563EB', backgroundColor: '#EFF6FF' },
@@ -624,6 +731,11 @@ const styles = StyleSheet.create({
   cardText: { fontSize: 13, color: '#334155', lineHeight: 18 },
   rainwaterTip: { fontSize: 12, color: '#0369A1', fontWeight: '600' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  statusPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 999 },
+  pillSkip: { backgroundColor: '#E0F2FE' },
+  pillWater: { backgroundColor: '#DCFCE7' },
+  pillRestrict: { backgroundColor: '#FEF3C7' },
+  statusPillText: { fontSize: 10, fontWeight: '800', color: '#0F172A' },
   outlineBtn: {
     borderWidth: 1,
     borderColor: '#166534',
@@ -654,13 +766,29 @@ const styles = StyleSheet.create({
   },
   toggleItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   toggleLabel: { fontSize: 13, fontWeight: '600', color: '#334155' },
+  segmentedBar: {
+    flexDirection: 'row',
+    backgroundColor: '#E5E7EB',
+    borderRadius: 12,
+    padding: 4,
+    gap: 4
+  },
+  segmentedBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    borderRadius: 9,
+    alignItems: 'center'
+  },
+  segmentedBtnActive: { backgroundColor: '#FFFFFF' },
+  segmentedText: { fontSize: 13, fontWeight: '600', color: '#475569' },
+  segmentedTextActive: { color: '#14532D', fontWeight: '800' },
   searchInput: {
     backgroundColor: '#FFFFFF',
     borderWidth: 1,
     borderColor: '#CBD5E1',
-    borderRadius: 10,
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 9,
+    paddingVertical: 10,
     fontSize: 14,
     color: '#0F172A'
   },
@@ -669,7 +797,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 11,
     paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: '#E2E8F0',
+    backgroundColor: '#E5E7EB',
     marginRight: 8
   },
   filterChipActive: { backgroundColor: '#166534' },
@@ -678,19 +806,21 @@ const styles = StyleSheet.create({
   btn: {
     marginTop: 6,
     backgroundColor: '#15803D',
-    paddingVertical: 9,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 10,
     alignItems: 'center'
   },
   btnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   navBar: {
     flexDirection: 'row',
     borderTopWidth: 1,
-    borderColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF'
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    paddingBottom: 4
   },
-  navItem: { flex: 1, paddingVertical: 12, alignItems: 'center' },
-  navItemActive: { borderTopWidth: 3, borderColor: '#166534' },
-  navText: { fontSize: 13, fontWeight: '600', color: '#64748B' },
-  navTextActive: { color: '#166534', fontWeight: '800' }
+  navItem: { flex: 1, paddingVertical: 8, alignItems: 'center', gap: 2 },
+  navItemActive: { borderTopWidth: 3, borderColor: '#14532D', backgroundColor: '#F0FDF4' },
+  navIcon: { fontSize: 16 },
+  navText: { fontSize: 11, fontWeight: '600', color: '#64748B' },
+  navTextActive: { color: '#14532D', fontWeight: '800' }
 });
