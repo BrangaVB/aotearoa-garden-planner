@@ -42,6 +42,8 @@ interface Props {
   zones: GardenZone[];
   plantingsByZone: Record<string, Planting[]>;
   rotationHistoryByZone?: Record<string, RotationHistoryEntry[]>;
+  selectedZoneId?: string;
+  onSelectZoneId?: (zoneId: string) => void;
   onWorkspaceChanged: () => Promise<void>;
 }
 
@@ -206,10 +208,18 @@ export function BedBuilderScreen({
   zones,
   plantingsByZone,
   rotationHistoryByZone = {},
+  selectedZoneId: controlledZoneId,
+  onSelectZoneId,
   onWorkspaceChanged
 }: Props) {
-  const [selectedZoneId, setSelectedZoneId] = useState<string>(zones[0]?.id ?? '');
+  const [localZoneId, setLocalZoneId] = useState<string>(zones[0]?.id ?? '');
+  const effectiveZoneId = controlledZoneId || localZoneId;
+  const setSelectedZoneId = (id: string) => {
+    setLocalZoneId(id);
+    onSelectZoneId?.(id);
+  };
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [showPlantPicker, setShowPlantPicker] = useState(false);
 
   // Quick-start preset & custom bed form state
   const [selectedPresetId, setSelectedPresetId] = useState<string>(BED_PRESETS[0]?.id ?? 'raised-120x240');
@@ -238,8 +248,8 @@ export function BedBuilderScreen({
   );
 
   const activeZone = useMemo(
-    () => zones.find((z) => z.id === selectedZoneId) ?? zones[0],
-    [zones, selectedZoneId]
+    () => zones.find((z) => z.id === effectiveZoneId) ?? zones[0],
+    [zones, effectiveZoneId]
   );
 
   const activePlantings = useMemo(
@@ -575,149 +585,170 @@ export function BedBuilderScreen({
             )}
           </View>
 
-          <Text style={styles.label}>1. Choose a Plant to Place</Text>
-          <View style={styles.searchRow}>
-            <TextInput
-              style={[styles.input, { flex: 1 }]}
-              value={plantQuery}
-              onChangeText={setPlantQuery}
-              placeholder="Search plants (tomato, kūmara, kōwhai, feijoa)..."
-              placeholderTextColor="#64748B"
-            />
-            {plantQuery.length > 0 && (
-              <Pressable style={styles.clearSearchBtn} onPress={() => setPlantQuery('')}>
-                <Text style={styles.clearSearchText}>Clear</Text>
-              </Pressable>
-            )}
-          </View>
-
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-            {CATEGORY_FILTERS.map((cat) => {
-              const active = selectedCategory === cat.value;
-              const isNppa = cat.value === 'NPPA Weed';
-              return (
-                <Pressable
-                  key={cat.label}
-                  onPress={() => setSelectedCategory(cat.value)}
-                  style={[
-                    styles.filterPill,
-                    isNppa && styles.filterPillNppa,
-                    active && (isNppa ? styles.filterPillNppaActive : styles.filterPillActive)
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.filterPillText,
-                      isNppa && styles.filterPillNppaText,
-                      active && styles.filterPillTextActive
-                    ]}
-                  >
-                    {cat.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-
-          {filteredSpecies.length === 0 ? (
-            <Text style={styles.emptySearchText}>
-              No plants match "{plantQuery}". Try another name or tap All.
-            </Text>
-          ) : (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-              {filteredSpecies.map((sp) => {
-                const active = selectedSpecies?.id === sp.id;
-                const visual = getSpeciesVisual(sp);
-                return (
-                  <Pressable
-                    key={sp.id}
-                    onPress={() => {
-                      setSelectedSpecies(sp);
-                      setPendingCell(null);
-                      setValidation(null);
-                    }}
-                    style={[
-                      styles.plantChip,
-                      sp.isNppaWeed && styles.nppaChip,
-                      active && styles.chipActive
-                    ]}
-                  >
-                    <Text style={styles.plantChipEmoji}>{visual.emoji}</Text>
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                      {sp.commonName}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          )}
-
-          <View style={styles.gridHeaderRow}>
-            <Text style={styles.label}>
-              2. Tap a 25 cm Cell ({grid.rows}×{grid.cols})
-            </Text>
-            <View style={styles.legendRow}>
-              <View style={[styles.legendDot, { backgroundColor: '#16A34A' }]} />
-              <Text style={styles.legendText}>Veg</Text>
-              <View style={[styles.legendDot, { backgroundColor: '#0D9488' }]} />
-              <Text style={styles.legendText}>Herb</Text>
-              <View style={[styles.legendDot, { backgroundColor: '#D97706' }]} />
-              <Text style={styles.legendText}>Fruit</Text>
-              <View style={[styles.legendDot, { backgroundColor: '#059669' }]} />
-              <Text style={styles.legendText}>Native</Text>
+          <View style={styles.brushBar}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.brushEyebrow}>ACTIVE PLANT BRUSH</Text>
+              <Text style={styles.brushTitle}>
+                {selectedSpecies
+                  ? `${getSpeciesEmoji(selectedSpecies)} ${selectedSpecies.commonName}`
+                  : 'Select a plant'}
+              </Text>
             </View>
+            <Pressable
+              style={[styles.brushToggleBtn, showPlantPicker && styles.brushToggleBtnActive]}
+              onPress={() => setShowPlantPicker((prev) => !prev)}
+            >
+              <Text
+                style={[styles.brushToggleText, showPlantPicker && styles.brushToggleTextActive]}
+              >
+                {showPlantPicker ? 'Done' : 'Change Plant'}
+              </Text>
+            </Pressable>
           </View>
 
-          <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <View style={styles.gridWrap}>
-              {Array.from({ length: Math.min(grid.rows, 6) }).map((_, rIdx) => (
-                <View key={rIdx} style={styles.gridRow}>
-                  {Array.from({ length: Math.min(grid.cols, 8) }).map((__, cIdx) => {
-                    const occupant = activePlantings.find(
-                      (p) => p.gridRow === rIdx && p.gridCol === cIdx
-                    );
-                    const occupantSpecies = occupant
-                      ? PLANT_SPECIES_BY_ID[occupant.speciesId]
-                      : undefined;
-                    const visual = occupantSpecies ? getSpeciesVisual(occupantSpecies) : null;
-                    const isSelected =
-                      pendingCell?.row === rIdx && pendingCell?.col === cIdx;
+          {showPlantPicker && (
+            <View style={styles.pickerDrawer}>
+              <View style={styles.searchRow}>
+                <TextInput
+                  style={[styles.input, { flex: 1 }]}
+                  value={plantQuery}
+                  onChangeText={setPlantQuery}
+                  placeholder="Search plants (tomato, kūmara, kōwhai, feijoa)..."
+                  placeholderTextColor="#64748B"
+                />
+                {plantQuery.length > 0 && (
+                  <Pressable style={styles.clearSearchBtn} onPress={() => setPlantQuery('')}>
+                    <Text style={styles.clearSearchText}>Clear</Text>
+                  </Pressable>
+                )}
+              </View>
 
-                    return (
-                      <Pressable
-                        key={`${rIdx}_${cIdx}`}
-                        onPress={() => handleCellPress(rIdx, cIdx)}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                {CATEGORY_FILTERS.map((cat) => {
+                  const active = selectedCategory === cat.value;
+                  const isNppa = cat.value === 'NPPA Weed';
+                  return (
+                    <Pressable
+                      key={cat.label}
+                      onPress={() => setSelectedCategory(cat.value)}
+                      style={[
+                        styles.filterPill,
+                        isNppa && styles.filterPillNppa,
+                        active && (isNppa ? styles.filterPillNppaActive : styles.filterPillActive)
+                      ]}
+                    >
+                      <Text
                         style={[
-                          styles.gridCell,
-                          visual && {
-                            backgroundColor: visual.bg,
-                            borderColor: visual.border
-                          },
-                          isSelected && styles.gridCellSelected
+                          styles.filterPillText,
+                          isNppa && styles.filterPillNppaText,
+                          active && styles.filterPillTextActive
                         ]}
                       >
-                        {visual ? (
-                          <>
-                            <Text style={styles.gridCellEmoji}>{visual.emoji}</Text>
-                            <Text
-                              style={[styles.gridCellCode, { color: visual.text }]}
-                              numberOfLines={1}
-                            >
-                              {visual.shortCode}
-                            </Text>
-                          </>
-                        ) : (
-                          <Text style={styles.gridCellEmptyText}>
-                            {rIdx + 1},{cIdx + 1}
-                          </Text>
-                        )}
+                        {cat.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+
+              {filteredSpecies.length === 0 ? (
+                <Text style={styles.emptySearchText}>
+                  No plants match "{plantQuery}". Try another name or tap All.
+                </Text>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                  {filteredSpecies.map((sp) => {
+                    const active = selectedSpecies?.id === sp.id;
+                    const visual = getSpeciesVisual(sp);
+                    return (
+                      <Pressable
+                        key={sp.id}
+                        onPress={() => {
+                          setSelectedSpecies(sp);
+                          setPendingCell(null);
+                          setValidation(null);
+                          setShowPlantPicker(false);
+                        }}
+                        style={[
+                          styles.plantChip,
+                          sp.isNppaWeed && styles.nppaChip,
+                          active && styles.chipActive
+                        ]}
+                      >
+                        <Text style={styles.plantChipEmoji}>{visual.emoji}</Text>
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                          {sp.commonName}
+                        </Text>
                       </Pressable>
                     );
                   })}
-                </View>
-              ))}
+                </ScrollView>
+              )}
             </View>
-          </ScrollView>
+          )}
+
+          <View style={styles.timberFrame}>
+            <View style={styles.soilTopRow}>
+              <Text style={styles.soilTitle}>
+                25 cm Planting Grid ({grid.rows}×{grid.cols})
+              </Text>
+              <View style={styles.aspectBadge}>
+                <Text style={styles.aspectBadgeText}>☀️ {activeZone.sunAspect}</Text>
+              </View>
+            </View>
+
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <View style={styles.gridWrap}>
+                {Array.from({ length: Math.min(grid.rows, 6) }).map((_, rIdx) => (
+                  <View key={rIdx} style={styles.gridRow}>
+                    {Array.from({ length: Math.min(grid.cols, 8) }).map((__, cIdx) => {
+                      const occupant = activePlantings.find(
+                        (p) => p.gridRow === rIdx && p.gridCol === cIdx
+                      );
+                      const occupantSpecies = occupant
+                        ? PLANT_SPECIES_BY_ID[occupant.speciesId]
+                        : undefined;
+                      const visual = occupantSpecies ? getSpeciesVisual(occupantSpecies) : null;
+                      const isSelected =
+                        pendingCell?.row === rIdx && pendingCell?.col === cIdx;
+
+                      return (
+                        <Pressable
+                          key={`${rIdx}_${cIdx}`}
+                          onPress={() => handleCellPress(rIdx, cIdx)}
+                          style={[
+                            styles.gridCell,
+                            visual
+                              ? {
+                                  backgroundColor: visual.bg,
+                                  borderColor: visual.border,
+                                  borderStyle: 'solid'
+                                }
+                              : styles.gridCellSoil,
+                            isSelected && styles.gridCellSelected
+                          ]}
+                        >
+                          {visual ? (
+                            <>
+                              <Text style={styles.gridCellEmoji}>{visual.emoji}</Text>
+                              <Text
+                                style={[styles.gridCellCode, { color: visual.text }]}
+                                numberOfLines={1}
+                              >
+                                {visual.shortCode}
+                              </Text>
+                            </>
+                          ) : (
+                            <Text style={styles.gridCellPlus}>+</Text>
+                          )}
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
+            </ScrollView>
+          </View>
 
           {validation && pendingCell && (
             <View
@@ -729,16 +760,34 @@ export function BedBuilderScreen({
               <View style={styles.inspectorHeader}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.inspectorEyebrow}>
-                    CELL INSPECTOR · ROW {pendingCell.row + 1}, COL {pendingCell.col + 1}
+                    {existingOccupantAtPending ? 'PLANTED SPOT' : 'EMPTY SPOT'} · ROW{' '}
+                    {pendingCell.row + 1}, COL {pendingCell.col + 1}
                   </Text>
-                  <Text style={styles.inspectorTitle}>
-                    {selectedSpecies ? `${getSpeciesEmoji(selectedSpecies)} ${selectedSpecies.commonName}` : 'Select a plant'}
-                  </Text>
-                  {selectedSpecies && (
-                    <Text style={styles.inspectorMeta}>
-                      {selectedSpecies.category} · Spacing {selectedSpecies.spacingCm} cm ·{' '}
-                      {selectedSpecies.sunRequirement}
-                    </Text>
+                  {existingOccupantAtPending && existingOccupantSpecies ? (
+                    <>
+                      <Text style={styles.inspectorTitle}>
+                        {getSpeciesEmoji(existingOccupantSpecies)}{' '}
+                        {existingOccupantSpecies.commonName}
+                      </Text>
+                      <Text style={styles.inspectorMeta}>
+                        {existingOccupantAtPending.growthStage} · Moisture deficit{' '}
+                        {existingOccupantAtPending.moistureDeficitMm}mm
+                      </Text>
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.inspectorTitle}>
+                        {selectedSpecies
+                          ? `Plant ${getSpeciesEmoji(selectedSpecies)} ${selectedSpecies.commonName}`
+                          : 'Select a plant'}
+                      </Text>
+                      {selectedSpecies && (
+                        <Text style={styles.inspectorMeta}>
+                          {selectedSpecies.category} · Spacing {selectedSpecies.spacingCm} cm ·{' '}
+                          {selectedSpecies.sunRequirement}
+                        </Text>
+                      )}
+                    </>
                   )}
                 </View>
                 <Pressable
@@ -751,16 +800,6 @@ export function BedBuilderScreen({
                   <Text style={styles.inspectorCloseText}>✕</Text>
                 </Pressable>
               </View>
-
-              {existingOccupantAtPending && existingOccupantSpecies && (
-                <View style={styles.occupantBanner}>
-                  <Text style={styles.occupantBannerText}>
-                    Currently planted: {getSpeciesEmoji(existingOccupantSpecies)}{' '}
-                    {existingOccupantSpecies.commonName} ({existingOccupantAtPending.growthStage} · Deficit{' '}
-                    {existingOccupantAtPending.moistureDeficitMm}mm)
-                  </Text>
-                </View>
-              )}
 
               {!validation.allowed ? (
                 <View style={styles.feedbackBlockError}>
@@ -805,7 +844,9 @@ export function BedBuilderScreen({
                       onPress={handleConfirmPlanting}
                     >
                       <Text style={styles.primaryBtnText}>
-                        {existingOccupantAtPending ? 'Replace Planting' : 'Plant Here'}
+                        {existingOccupantAtPending && selectedSpecies
+                          ? `Replace with ${selectedSpecies.commonName}`
+                          : 'Plant Here'}
                       </Text>
                     </Pressable>
                     {existingOccupantAtPending && (
@@ -822,10 +863,10 @@ export function BedBuilderScreen({
             </View>
           )}
 
-          <Text style={styles.label}>Current Plantings ({activePlantings.length})</Text>
+          <Text style={styles.label}>Planted in {activeZone.name} ({activePlantings.length})</Text>
           {activePlantings.length === 0 ? (
             <Text style={styles.emptyPlantingsText}>
-              No plants in this bed yet. Pick a plant above and tap any grid cell.
+              Tap any soil square (+) above to start planting.
             </Text>
           ) : (
             activePlantings.map((p) => {
@@ -834,8 +875,8 @@ export function BedBuilderScreen({
               return (
                 <View key={p.id} style={styles.plantingRow}>
                   <Text style={[styles.cardText, { flex: 1 }]}>
-                    {emoji} [{p.gridRow + 1},{p.gridCol + 1}] {sp?.commonName ?? p.speciesId}
-                    {sp?.teReoName ? ` (${sp.teReoName})` : ''} · Deficit {p.moistureDeficitMm}mm
+                    {emoji} {sp?.commonName ?? p.speciesId}
+                    {sp?.teReoName ? ` (${sp.teReoName})` : ''} · Row {p.gridRow + 1}, Col {p.gridCol + 1}
                   </Text>
                   <Pressable onPress={() => handleRemovePlanting(p.id)}>
                     <Text style={styles.removeLink}>Remove</Text>
@@ -1088,6 +1129,62 @@ const styles = StyleSheet.create({
   },
   gridWrap: { gap: 6, paddingVertical: 2 },
   gridRow: { flexDirection: 'row', gap: 6 },
+  brushBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    gap: 10
+  },
+  brushEyebrow: { fontSize: 10, fontWeight: '800', color: '#15803D', letterSpacing: 0.5 },
+  brushTitle: { fontSize: 14, fontWeight: '800', color: '#14532D', marginTop: 1 },
+  brushToggleBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#166534',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6
+  },
+  brushToggleBtnActive: {
+    backgroundColor: '#166534'
+  },
+  brushToggleText: { fontSize: 12, fontWeight: '700', color: '#166534' },
+  brushToggleTextActive: { color: '#FFFFFF' },
+  pickerDrawer: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8
+  },
+  timberFrame: {
+    backgroundColor: '#4E342E',
+    borderRadius: 14,
+    borderWidth: 4,
+    borderColor: '#92400E',
+    padding: 10,
+    gap: 8
+  },
+  soilTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center'
+  },
+  soilTitle: { fontSize: 11, fontWeight: '700', color: '#FDE68A' },
+  aspectBadge: {
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999
+  },
+  aspectBadgeText: { fontSize: 10, fontWeight: '700', color: '#FEF3C7' },
   gridCell: {
     width: 58,
     height: 58,
@@ -1100,13 +1197,18 @@ const styles = StyleSheet.create({
     padding: 4,
     gap: 2
   },
+  gridCellSoil: {
+    backgroundColor: '#5D4037',
+    borderColor: '#8D6E63',
+    borderStyle: 'dashed'
+  },
   gridCellSelected: {
     borderWidth: 2.5,
-    borderColor: '#1D4ED8'
+    borderColor: '#FBBF24'
   },
   gridCellEmoji: { fontSize: 20, lineHeight: 22 },
   gridCellCode: { fontSize: 10, fontWeight: '800', letterSpacing: 0.3 },
-  gridCellEmptyText: { fontSize: 11, color: '#94A3B8', fontWeight: '600' },
+  gridCellPlus: { fontSize: 18, color: '#BCAAA4', fontWeight: '700' },
   inspectorCard: {
     backgroundColor: '#F8FAFC',
     borderRadius: 12,

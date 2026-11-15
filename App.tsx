@@ -106,6 +106,7 @@ export default function App() {
 
   const [tab, setTab] = useState<Tab>('Today');
   const [gardenSubTab, setGardenSubTab] = useState<GardenSubTab>('Beds');
+  const [selectedGardenZoneId, setSelectedGardenZoneId] = useState<string>('');
   const [pestSubTab, setPestSubTab] = useState<PestSubTab>('Guide');
 
   // UI state for filters, task completion, and restriction reporting
@@ -568,13 +569,18 @@ export default function App() {
                 zones={zones}
                 plantingsByZone={plantingsByZone}
                 rotationHistoryByZone={rotationHistoryByZone}
+                selectedZoneId={selectedGardenZoneId}
+                onSelectZoneId={setSelectedGardenZoneId}
                 onWorkspaceChanged={() => loadWorkspace(profile)}
               />
             ) : (
               <CanvasScreen
                 profile={profile}
                 zones={zones}
+                plantingsByZone={plantingsByZone}
                 obstacles={obstacles}
+                selectedZoneId={selectedGardenZoneId}
+                onSelectZoneId={setSelectedGardenZoneId}
                 onWorkspaceChanged={() => loadWorkspace(profile)}
                 onUnlockPro={async () => {
                   const updated = await unlockProGarden(profile);

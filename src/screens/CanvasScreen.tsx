@@ -23,13 +23,17 @@ import {
   GardenObstacle,
   GardenProfile,
   GardenZone,
-  ObstacleType
+  ObstacleType,
+  Planting
 } from '../types/domain';
 
 interface Props {
   profile: GardenProfile;
   zones: GardenZone[];
+  plantingsByZone?: Record<string, Planting[]>;
   obstacles: GardenObstacle[];
+  selectedZoneId?: string;
+  onSelectZoneId?: (zoneId: string) => void;
   onWorkspaceChanged: () => Promise<void>;
   onUnlockPro: () => Promise<void>;
 }
@@ -45,12 +49,19 @@ interface ObstaclePreset {
   heightCm: number;
 }
 
-const SEASONS: SeasonPreset[] = [
-  'Summer Solstice (Dec)',
-  'Equinox (Mar/Sep)',
-  'Winter Solstice (Jun)'
+const SEASONS: Array<{ value: SeasonPreset; label: string }> = [
+  { value: 'Summer Solstice (Dec)', label: '☀️ Summer' },
+  { value: 'Equinox (Mar/Sep)', label: '🌤️ Equinox' },
+  { value: 'Winter Solstice (Jun)', label: '❄️ Winter' }
 ];
-const HOURS = [8, 10, 12, 14, 16, 18];
+const HOURS: Array<{ hour: number; label: string }> = [
+  { hour: 8, label: '8am' },
+  { hour: 10, label: '10am' },
+  { hour: 12, label: '12pm' },
+  { hour: 14, label: '2pm' },
+  { hour: 16, label: '4pm' },
+  { hour: 18, label: '6pm' }
+];
 const OBSTACLE_TYPES: ObstacleType[] = ['Fence', 'Tree', 'House Wall', 'Shed'];
 const OBSTACLE_PRESETS: ObstaclePreset[] = [
   {
@@ -101,13 +112,22 @@ function formatCardinalDirection(azimuthDeg: number): string {
 export function CanvasScreen({
   profile,
   zones,
+  plantingsByZone = {},
   obstacles,
+  selectedZoneId: controlledZoneId,
+  onSelectZoneId,
   onWorkspaceChanged,
   onUnlockPro
 }: Props) {
   const [season, setSeason] = useState<SeasonPreset>('Summer Solstice (Dec)');
   const [hour, setHour] = useState<number>(12);
-  const [selectedZoneId, setSelectedZoneId] = useState<string>(zones[0]?.id ?? '');
+  const [localZoneId, setLocalZoneId] = useState<string>(zones[0]?.id ?? '');
+  const effectiveZoneId = controlledZoneId || localZoneId;
+  const setSelectedZoneId = (id: string) => {
+    setLocalZoneId(id);
+    onSelectZoneId?.(id);
+  };
+  const [showCustomObstacle, setShowCustomObstacle] = useState(false);
   const [newObsName, setNewObsName] = useState('North Boundary Fence');
   const [newObsType, setNewObsType] = useState<ObstacleType>('Fence');
   const [newObsHeightCm, setNewObsHeightCm] = useState('180');
@@ -119,8 +139,8 @@ export function CanvasScreen({
   );
 
   const selectedZone = useMemo(
-    () => zones.find((z) => z.id === selectedZoneId) ?? zones[0],
-    [zones, selectedZoneId]
+    () => zones.find((z) => z.id === effectiveZoneId) ?? zones[0],
+    [zones, effectiveZoneId]
   );
 
   const zoneSunSummaries = useMemo(
@@ -208,32 +228,34 @@ export function CanvasScreen({
 
       <View style={styles.card}>
         <Text style={styles.label}>Season (Southern Hemisphere)</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+        <View style={styles.pillRow}>
           {SEASONS.map((s) => (
             <Pressable
-              key={s}
-              onPress={() => setSeason(s)}
-              style={[styles.chip, season === s && styles.chipActive]}
+              key={s.value}
+              onPress={() => setSeason(s.value)}
+              style={[styles.chip, styles.chipFlex, season === s.value && styles.chipActive]}
             >
-              <Text style={[styles.chipText, season === s && styles.chipTextActive]}>{s}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        <Text style={styles.label}>Time of Day</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-          {HOURS.map((h) => (
-            <Pressable
-              key={h}
-              onPress={() => setHour(h)}
-              style={[styles.chip, hour === h && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, hour === h && styles.chipTextActive]}>
-                {h}:00
+              <Text style={[styles.chipText, season === s.value && styles.chipTextActive]}>
+                {s.label}
               </Text>
             </Pressable>
           ))}
-        </ScrollView>
+        </View>
+
+        <Text style={styles.label}>Time of Day</Text>
+        <View style={styles.pillRow}>
+          {HOURS.map((h) => (
+            <Pressable
+              key={h.hour}
+              onPress={() => setHour(h.hour)}
+              style={[styles.chip, styles.chipFlex, hour === h.hour && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, hour === h.hour && styles.chipTextActive]}>
+                {h.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
 
         <View style={[styles.sunArcPill, !solar.isDaylight && styles.sunArcPillNight]}>
           <View style={styles.sunArcHeader}>
@@ -311,6 +333,7 @@ export function CanvasScreen({
             const gx = z.canvasGeometry?.xCm ?? 60 + idx * 140;
             const gy = z.canvasGeometry?.yCm ?? 220 + idx * 90;
             const active = selectedZone?.id === z.id;
+            const plantCount = (plantingsByZone[z.id] ?? []).length;
             return (
               <Pressable
                 key={z.id}
@@ -321,14 +344,15 @@ export function CanvasScreen({
                   {
                     left: gx * PX_PER_CM,
                     top: gy * PX_PER_CM,
-                    width: Math.max(36, z.lengthCm * PX_PER_CM),
-                    height: Math.max(26, z.widthCm * PX_PER_CM)
+                    width: Math.max(44, z.lengthCm * PX_PER_CM),
+                    height: Math.max(30, z.widthCm * PX_PER_CM)
                   }
                 ]}
               >
-                <Text style={[styles.bedText, active && styles.bedTextActive]} numberOfLines={2}>
-                  {active ? `● ${z.name}` : z.name}
+                <Text style={[styles.bedText, active && styles.bedTextActive]} numberOfLines={1}>
+                  {z.name}
                 </Text>
+                <Text style={styles.bedCountText}>{plantCount} 🌱</Text>
               </Pressable>
             );
           })}
@@ -375,7 +399,7 @@ export function CanvasScreen({
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Daily Sun Exposure ({season})</Text>
+        <Text style={styles.cardTitle}>Daily Sun Exposure ({SEASONS.find((s) => s.value === season)?.label ?? season})</Text>
         {zoneSunSummaries.map(({ zone, sun }) => (
           <Text key={zone.id} style={styles.cardText}>
             • {zone.name}: {sun.sunlitHours} hrs/day — <Text style={styles.bold}>{sun.classification}</Text>
@@ -384,8 +408,17 @@ export function CanvasScreen({
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Shade Obstacles ({obstacles.length})</Text>
-        <Text style={styles.label}>Quick Add (1-Tap)</Text>
+        <View style={styles.obsHeaderRow}>
+          <Text style={styles.cardTitle}>Shade Obstacles ({obstacles.length})</Text>
+          <Pressable
+            style={styles.customObsToggle}
+            onPress={() => setShowCustomObstacle((prev) => !prev)}
+          >
+            <Text style={styles.customObsToggleText}>
+              {showCustomObstacle ? 'Close' : '+ Custom'}
+            </Text>
+          </Pressable>
+        </View>
         <View style={styles.nudgeRow}>
           {OBSTACLE_PRESETS.map((preset) => (
             <Pressable
@@ -398,36 +431,39 @@ export function CanvasScreen({
           ))}
         </View>
 
-        <Text style={styles.label}>Custom Obstacle</Text>
-        <TextInput
-          style={styles.input}
-          value={newObsName}
-          onChangeText={setNewObsName}
-          placeholder="Obstacle name (e.g. Neighbour Hedge)"
-          placeholderTextColor="#64748B"
-        />
-        <View style={styles.nudgeRow}>
-          {OBSTACLE_TYPES.map((t) => (
-            <Pressable
-              key={t}
-              onPress={() => setNewObsType(t)}
-              style={[styles.chip, newObsType === t && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, newObsType === t && styles.chipTextActive]}>{t}</Text>
+        {showCustomObstacle && (
+          <View style={styles.customObsBox}>
+            <TextInput
+              style={styles.input}
+              value={newObsName}
+              onChangeText={setNewObsName}
+              placeholder="Obstacle name (e.g. Neighbour Hedge)"
+              placeholderTextColor="#64748B"
+            />
+            <View style={styles.nudgeRow}>
+              {OBSTACLE_TYPES.map((t) => (
+                <Pressable
+                  key={t}
+                  onPress={() => setNewObsType(t)}
+                  style={[styles.chip, newObsType === t && styles.chipActive]}
+                >
+                  <Text style={[styles.chipText, newObsType === t && styles.chipTextActive]}>{t}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <TextInput
+              style={styles.input}
+              value={newObsHeightCm}
+              onChangeText={setNewObsHeightCm}
+              keyboardType="numeric"
+              placeholder="Height in cm (e.g. 180)"
+              placeholderTextColor="#64748B"
+            />
+            <Pressable style={styles.primaryBtn} onPress={() => void handleAddObstacle()}>
+              <Text style={styles.primaryBtnText}>+ Add Shade Obstacle</Text>
             </Pressable>
-          ))}
-        </View>
-        <TextInput
-          style={styles.input}
-          value={newObsHeightCm}
-          onChangeText={setNewObsHeightCm}
-          keyboardType="numeric"
-          placeholder="Height in cm (e.g. 180)"
-          placeholderTextColor="#64748B"
-        />
-        <Pressable style={styles.primaryBtn} onPress={() => void handleAddObstacle()}>
-          <Text style={styles.primaryBtnText}>+ Add Shade Obstacle</Text>
-        </Pressable>
+          </View>
+        )}
 
         {obstacles.map((obs) => (
           <View key={obs.id} style={styles.obsRow}>
@@ -482,6 +518,7 @@ const styles = StyleSheet.create({
   bold: { fontWeight: '700', color: '#0F172A' },
   label: { fontSize: 12, fontWeight: '700', color: '#334155' },
   chipScroll: { flexGrow: 0 },
+  pillRow: { flexDirection: 'row', gap: 6 },
   chip: {
     paddingHorizontal: 10,
     paddingVertical: 6,
@@ -489,10 +526,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#F1F5F9',
     borderWidth: 1,
     borderColor: '#CBD5E1',
-    marginRight: 6
+    alignItems: 'center'
   },
+  chipFlex: { flex: 1 },
   chipActive: { backgroundColor: '#166534', borderColor: '#166534' },
-  chipText: { fontSize: 12, fontWeight: '600', color: '#334155' },
+  chipText: { fontSize: 11, fontWeight: '600', color: '#334155' },
   chipTextActive: { color: '#FFFFFF' },
   sunArcPill: {
     backgroundColor: '#FFFBEB',
@@ -616,26 +654,27 @@ const styles = StyleSheet.create({
   boxText: { color: '#FFFFFF', fontSize: 8, fontWeight: '700' },
   bedBox: {
     position: 'absolute',
-    backgroundColor: '#BBF7D0',
-    borderWidth: 1,
-    borderColor: '#16A34A',
+    backgroundColor: '#5D4037',
+    borderWidth: 2,
+    borderColor: '#92400E',
     borderRadius: 6,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 2
+    padding: 3
   },
   bedBoxActive: {
-    backgroundColor: '#DBEAFE',
+    backgroundColor: '#4E342E',
     borderWidth: 2.5,
-    borderColor: '#1D4ED8',
-    shadowColor: '#1D4ED8',
+    borderColor: '#FBBF24',
+    shadowColor: '#F59E0B',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.22,
-    shadowRadius: 3,
-    elevation: 2
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 3
   },
-  bedText: { fontSize: 9, fontWeight: '700', color: '#14532D', textAlign: 'center' },
-  bedTextActive: { color: '#1E3A8A' },
+  bedText: { fontSize: 9, fontWeight: '800', color: '#FEF3C7', textAlign: 'center' },
+  bedTextActive: { color: '#FDE68A' },
+  bedCountText: { fontSize: 8, fontWeight: '700', color: '#D6D3D1', marginTop: 1 },
   nudgePanel: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
@@ -652,12 +691,12 @@ const styles = StyleSheet.create({
   },
   nudgeLabel: { fontSize: 12, color: '#334155', flex: 1 },
   stepBadge: {
-    backgroundColor: '#DBEAFE',
+    backgroundColor: '#FEF3C7',
     borderRadius: 999,
     paddingHorizontal: 8,
     paddingVertical: 3
   },
-  stepBadgeText: { fontSize: 11, fontWeight: '700', color: '#1D4ED8' },
+  stepBadgeText: { fontSize: 11, fontWeight: '700', color: '#92400E' },
   nudgeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   nudgeBtn: {
     backgroundColor: '#E2E8F0',
@@ -666,6 +705,27 @@ const styles = StyleSheet.create({
     borderRadius: 6
   },
   nudgeText: { fontSize: 12, fontWeight: '700', color: '#0F172A' },
+  obsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8
+  },
+  customObsToggle: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 5
+  },
+  customObsToggleText: { fontSize: 12, fontWeight: '700', color: '#334155' },
+  customObsBox: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8
+  },
   presetChip: {
     backgroundColor: '#ECFDF5',
     borderWidth: 1,
