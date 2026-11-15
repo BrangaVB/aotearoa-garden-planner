@@ -1,0 +1,11 @@
+{
+  "expo": {
+    "name": "Aotearoa Garden Planner",
+    "slug": "aotearoa-garden-planner",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "platforms": ["ios", "android"],
+    "plugins": ["expo-sqlite", "expo-notifications"]
+  }
+}
