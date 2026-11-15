@@ -1,11 +1,14 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
+  PanResponder,
   Pressable,
   ScrollView,
+  StyleProp,
   StyleSheet,
   Text,
   TextInput,
-  View
+  View,
+  ViewStyle
 } from 'react-native';
 import {
   deleteObstacle,
@@ -109,6 +112,74 @@ function formatCardinalDirection(azimuthDeg: number): string {
   return CARDINALS[index] ?? 'N';
 }
 
+function clamp(val: number, min: number, max: number): number {
+  return Math.max(min, Math.min(max, val));
+}
+
+interface DraggableItemProps {
+  xCm: number;
+  yCm: number;
+  maxXCm: number;
+  maxYCm: number;
+  pxPerCm: number;
+  style?: StyleProp<ViewStyle>;
+  onSelect?: () => void;
+  onDragMove: (xCm: number, yCm: number) => void;
+  onDragEnd: (xCm: number, yCm: number) => void;
+  children: React.ReactNode;
+}
+
+function DraggableCanvasItem({
+  xCm,
+  yCm,
+  maxXCm,
+  maxYCm,
+  pxPerCm,
+  style,
+  onSelect,
+  onDragMove,
+  onDragEnd,
+  children
+}: DraggableItemProps) {
+  const startRef = useRef({ xCm, yCm });
+  const latestRef = useRef({ xCm, yCm, maxXCm, maxYCm, pxPerCm, onSelect, onDragMove, onDragEnd });
+  latestRef.current = { xCm, yCm, maxXCm, maxYCm, pxPerCm, onSelect, onDragMove, onDragEnd };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: (_, gesture) =>
+        Math.abs(gesture.dx) > 2 || Math.abs(gesture.dy) > 2,
+      onPanResponderTerminationRequest: () => false,
+      onPanResponderGrant: () => {
+        startRef.current = {
+          xCm: latestRef.current.xCm,
+          yCm: latestRef.current.yCm
+        };
+        latestRef.current.onSelect?.();
+      },
+      onPanResponderMove: (_, gesture) => {
+        const cur = latestRef.current;
+        const nextX = clamp(startRef.current.xCm + gesture.dx / cur.pxPerCm, 0, cur.maxXCm);
+        const nextY = clamp(startRef.current.yCm + gesture.dy / cur.pxPerCm, 0, cur.maxYCm);
+        cur.onDragMove(Math.round(nextX), Math.round(nextY));
+      },
+      onPanResponderRelease: (_, gesture) => {
+        const cur = latestRef.current;
+        const nextX = clamp(startRef.current.xCm + gesture.dx / cur.pxPerCm, 0, cur.maxXCm);
+        const nextY = clamp(startRef.current.yCm + gesture.dy / cur.pxPerCm, 0, cur.maxYCm);
+        cur.onDragEnd(Math.round(nextX), Math.round(nextY));
+      }
+    })
+  ).current;
+
+  return (
+    <View style={style} {...panResponder.panHandlers}>
+      {children}
+    </View>
+  );
+}
+
 export function CanvasScreen({
   profile,
   zones,
@@ -127,6 +198,12 @@ export function CanvasScreen({
     setLocalZoneId(id);
     onSelectZoneId?.(id);
   };
+  const [dragOverride, setDragOverride] = useState<{
+    kind: 'zone' | 'obstacle';
+    id: string;
+    xCm: number;
+    yCm: number;
+  } | null>(null);
   const [showCustomObstacle, setShowCustomObstacle] = useState(false);
   const [newObsName, setNewObsName] = useState('North Boundary Fence');
   const [newObsType, setNewObsType] = useState<ObstacleType>('Fence');
@@ -224,7 +301,12 @@ export function CanvasScreen({
         </View>
       )}
 
-      <Text style={styles.sectionTitle}>2D Sun-Path &amp; Shadow Canvas</Text>
+      <View>
+        <Text style={styles.sectionTitle}>2D Sun-Path &amp; Shadow Canvas</Text>
+        <Text style={styles.sectionSubtitle}>
+          Drag beds &amp; shade obstacles around your yard to test shadows and find the sunniest spot.
+        </Text>
+      </View>
 
       <View style={styles.card}>
         <Text style={styles.label}>Season (Southern Hemisphere)</Text>
@@ -300,8 +382,16 @@ export function CanvasScreen({
 
           {obstacles.map((obs) => {
             const shadow = computeShadowProjection(obs.heightCm, solar, 450);
-            const left = obs.xCm * PX_PER_CM;
-            const top = obs.yCm * PX_PER_CM;
+            const curXCm =
+              dragOverride?.kind === 'obstacle' && dragOverride.id === obs.id
+                ? dragOverride.xCm
+                : obs.xCm;
+            const curYCm =
+              dragOverride?.kind === 'obstacle' && dragOverride.id === obs.id
+                ? dragOverride.yCm
+                : obs.yCm;
+            const left = curXCm * PX_PER_CM;
+            const top = curYCm * PX_PER_CM;
             const width = Math.max(14, obs.lengthCm * PX_PER_CM);
             const height = Math.max(10, obs.widthCm * PX_PER_CM);
 
@@ -309,6 +399,7 @@ export function CanvasScreen({
               <React.Fragment key={obs.id}>
                 {solar.isDaylight && shadow.lengthCm > 0 && (
                   <View
+                    pointerEvents="none"
                     style={[
                       styles.shadowBox,
                       {
@@ -320,24 +411,58 @@ export function CanvasScreen({
                     ]}
                   />
                 )}
-                <View style={[styles.obstacleBox, { left, top, width, height }]}>
+                <DraggableCanvasItem
+                  xCm={curXCm}
+                  yCm={curYCm}
+                  maxXCm={Math.max(0, GARDEN_SPAN_CM - obs.lengthCm)}
+                  maxYCm={Math.max(0, 750 - obs.widthCm)}
+                  pxPerCm={PX_PER_CM}
+                  onDragMove={(xCm, yCm) =>
+                    setDragOverride({ kind: 'obstacle', id: obs.id, xCm, yCm })
+                  }
+                  onDragEnd={(xCm, yCm) => {
+                    setDragOverride(null);
+                    void upsertObstacle({ ...obs, xCm, yCm }).then(onWorkspaceChanged);
+                  }}
+                  style={[styles.obstacleBox, { left, top, width, height }]}
+                >
                   <Text style={styles.boxText} numberOfLines={1}>
-                    {obs.name}
+                    ⠿ {obs.name}
                   </Text>
-                </View>
+                </DraggableCanvasItem>
               </React.Fragment>
             );
           })}
 
           {zones.map((z, idx) => {
-            const gx = z.canvasGeometry?.xCm ?? 60 + idx * 140;
-            const gy = z.canvasGeometry?.yCm ?? 220 + idx * 90;
+            const baseGx = z.canvasGeometry?.xCm ?? 60 + idx * 140;
+            const baseGy = z.canvasGeometry?.yCm ?? 220 + idx * 90;
+            const gx =
+              dragOverride?.kind === 'zone' && dragOverride.id === z.id
+                ? dragOverride.xCm
+                : baseGx;
+            const gy =
+              dragOverride?.kind === 'zone' && dragOverride.id === z.id
+                ? dragOverride.yCm
+                : baseGy;
             const active = selectedZone?.id === z.id;
             const plantCount = (plantingsByZone[z.id] ?? []).length;
             return (
-              <Pressable
+              <DraggableCanvasItem
                 key={z.id}
-                onPress={() => setSelectedZoneId(z.id)}
+                xCm={gx}
+                yCm={gy}
+                maxXCm={Math.max(0, GARDEN_SPAN_CM - z.lengthCm)}
+                maxYCm={Math.max(0, 750 - z.widthCm)}
+                pxPerCm={PX_PER_CM}
+                onSelect={() => setSelectedZoneId(z.id)}
+                onDragMove={(xCm, yCm) =>
+                  setDragOverride({ kind: 'zone', id: z.id, xCm, yCm })
+                }
+                onDragEnd={(xCm, yCm) => {
+                  setDragOverride(null);
+                  void updateZoneCanvasGeometry(z.id, { xCm, yCm }).then(onWorkspaceChanged);
+                }}
                 style={[
                   styles.bedBox,
                   active && styles.bedBoxActive,
@@ -350,10 +475,10 @@ export function CanvasScreen({
                 ]}
               >
                 <Text style={[styles.bedText, active && styles.bedTextActive]} numberOfLines={1}>
-                  {z.name}
+                  ⠿ {z.name}
                 </Text>
                 <Text style={styles.bedCountText}>{plantCount} 🌱</Text>
-              </Pressable>
+              </DraggableCanvasItem>
             );
           })}
         </View>
@@ -505,6 +630,7 @@ const styles = StyleSheet.create({
   },
   proBannerBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   sectionTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A' },
+  sectionSubtitle: { fontSize: 12, color: '#64748B', marginTop: 2, lineHeight: 17 },
   card: {
     backgroundColor: '#FFFFFF',
     borderRadius: 12,
