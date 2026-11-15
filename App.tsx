@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import {
+  lookupNzLocation,
   NZ_CLIMATE_ZONES,
   resolveEffectiveCouncilRule
 } from './src/data/nzClimateAndCouncils';
@@ -83,6 +84,22 @@ const CATALOG_CATEGORIES: ('All' | PlantCategory)[] = [
   'NPPA Weed'
 ];
 
+const QUICK_LOCATION_CITIES = [
+  'Auckland',
+  'Wellington',
+  'Lower Hutt',
+  'Christchurch',
+  'Tauranga',
+  'Queenstown'
+] as const;
+
+function getMaramatakaLunarIcon(title: string, description: string): string {
+  const text = `${title} ${description}`.toLowerCase();
+  if (text.includes('rākau') || text.includes('rakau') || text.includes('full')) return '🌕';
+  if (text.includes('whiro') || text.includes('new moon')) return '🌑';
+  return '🌒';
+}
+
 function formatForecastDay(dateIso: string, index: number): string {
   if (index === 0) return 'Today';
   const parsed = new Date(`${dateIso}T00:00:00`);
@@ -107,6 +124,7 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('Today');
   const [gardenSubTab, setGardenSubTab] = useState<GardenSubTab>('Beds');
   const [selectedGardenZoneId, setSelectedGardenZoneId] = useState<string>('');
+  const [selectedBrushSpeciesId, setSelectedBrushSpeciesId] = useState<string | undefined>(undefined);
   const [pestSubTab, setPestSubTab] = useState<PestSubTab>('Guide');
 
   // UI state for filters, task completion, and restriction reporting
@@ -114,7 +132,9 @@ export default function App() {
   const [catalogCategory, setCatalogCategory] = useState<'All' | PlantCategory>('All');
   const [pestQuery, setPestQuery] = useState('');
   const [completedTaskIds, setCompletedTaskIds] = useState<Record<string, boolean>>({});
+  const [pinnedCareTasks, setPinnedCareTasks] = useState<CareTask[]>([]);
   const [showRestrictionPicker, setShowRestrictionPicker] = useState(false);
+  const [showLocationPicker, setShowLocationPicker] = useState(false);
 
   const loadWorkspace = async (active: GardenProfile) => {
     let userZones = await listZonesForProfile(active.id);
@@ -330,15 +350,60 @@ export default function App() {
     <SafeAreaView style={styles.safe}>
       <StatusBar style="light" />
       <View style={styles.header}>
-        <Text style={styles.headerSub}>
-          {profile.postcode} · {profile.suburb} · {climateZone.region}
-        </Text>
+        <Pressable
+          onPress={() => setShowLocationPicker((prev) => !prev)}
+          style={styles.headerLocBtn}
+        >
+          <Text style={styles.headerSub}>
+            📍 {profile.postcode} · {profile.suburb} · {climateZone.region}{' '}
+            {showLocationPicker ? '▲' : '▼'}
+          </Text>
+        </Pressable>
         <View style={styles.headerRow}>
           <Text style={styles.headerTitle}>Aotearoa Garden</Text>
           <View style={styles.weatherPill}>
             <Text style={styles.weatherPillText}>{weatherBadgeLabel}</Text>
           </View>
         </View>
+        {showLocationPicker && (
+          <View style={styles.headerLocDrawer}>
+            <Text style={styles.headerLocHint}>Switch NZ location:</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+              {QUICK_LOCATION_CITIES.map((city) => {
+                const active = profile.city.toLowerCase() === city.toLowerCase();
+                return (
+                  <Pressable
+                    key={city}
+                    onPress={() => {
+                      const match = lookupNzLocation(city)[0];
+                      if (!match) return;
+                      setShowLocationPicker(false);
+                      void handleUpdateProfile({
+                        postcode: match.postcode,
+                        suburb: match.suburb,
+                        city: match.city,
+                        latitude: match.latitude,
+                        longitude: match.longitude,
+                        climateZoneId: match.climateZoneId,
+                        councilId: match.councilId
+                      });
+                    }}
+                    style={[styles.headerLocChip, active && styles.headerLocChipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.headerLocChipText,
+                        active && styles.headerLocChipTextActive
+                      ]}
+                    >
+                      {city}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
       </View>
 
       <ScrollView contentContainerStyle={styles.body}>
@@ -458,40 +523,71 @@ export default function App() {
                 {wateringRecs.length} {wateringRecs.length === 1 ? 'zone' : 'zones'}
               </Text>
             </View>
-            {wateringRecs.map((rec) => (
-              <View key={rec.zoneId} style={styles.card}>
-                <View style={styles.rowBetween}>
-                  <Text style={styles.cardTitle}>{rec.zoneName}</Text>
-                  <View
-                    style={[
-                      styles.statusPill,
-                      rec.action === 'SKIP_RAIN'
-                        ? styles.pillSkip
-                        : rec.action === 'WATER_NOW'
-                        ? styles.pillWater
-                        : styles.pillRestrict
-                    ]}
-                  >
-                    <Text style={styles.statusPillText}>{rec.action.replace(/_/g, ' ')}</Text>
+            {wateringRecs.map((rec) => {
+              const deficitRatio = Math.min(
+                1,
+                Math.max(0, rec.newDeficitMm / Math.max(1, rec.triggerThresholdMm))
+              );
+              const moisturePct = Math.max(5, Math.round((1 - deficitRatio) * 100));
+              const gaugeColor =
+                moisturePct <= 25 ? '#D97706' : moisturePct <= 55 ? '#0284C7' : '#16A34A';
+              return (
+                <View key={rec.zoneId} style={styles.card}>
+                  <View style={styles.rowBetween}>
+                    <Text style={styles.cardTitle}>{rec.zoneName}</Text>
+                    <View
+                      style={[
+                        styles.statusPill,
+                        rec.action === 'SKIP_RAIN'
+                          ? styles.pillSkip
+                          : rec.action === 'WATER_NOW'
+                          ? styles.pillWater
+                          : styles.pillRestrict
+                      ]}
+                    >
+                      <Text style={styles.statusPillText}>{rec.action.replace(/_/g, ' ')}</Text>
+                    </View>
                   </View>
+                  <View style={styles.moistureWrap}>
+                    <View style={styles.rowBetween}>
+                      <Text style={styles.moistureLabel}>Soil Moisture · {moisturePct}%</Text>
+                      <Text style={styles.cardMeta}>
+                        Deficit {Math.round(rec.newDeficitMm)}/{Math.round(rec.triggerThresholdMm)}mm
+                      </Text>
+                    </View>
+                    <View style={styles.moistureTrack}>
+                      <View
+                        style={[
+                          styles.moistureFill,
+                          { width: `${moisturePct}%` as `${number}%`, backgroundColor: gaugeColor }
+                        ]}
+                      />
+                    </View>
+                  </View>
+                  <Text style={styles.cardText}>{rec.headline}</Text>
+                  <Text style={styles.cardMeta}>{rec.reason}</Text>
+                  {rec.rainwaterTip && <Text style={styles.rainwaterTip}>💧 {rec.rainwaterTip}</Text>}
+                  {rec.totalZoneLitres > 0 && (
+                    <Pressable style={styles.btn} onPress={() => handleMarkWatered(rec)}>
+                      <Text style={styles.btnText}>Mark Watered ({rec.totalZoneLitres}L)</Text>
+                    </Pressable>
+                  )}
                 </View>
-                <Text style={styles.cardText}>{rec.headline}</Text>
-                <Text style={styles.cardMeta}>{rec.reason}</Text>
-                {rec.rainwaterTip && <Text style={styles.rainwaterTip}>💧 {rec.rainwaterTip}</Text>}
-                {rec.totalZoneLitres > 0 && (
-                  <Pressable style={styles.btn} onPress={() => handleMarkWatered(rec)}>
-                    <Text style={styles.btnText}>Mark Watered ({rec.totalZoneLitres}L)</Text>
-                  </Pressable>
-                )}
-              </View>
-            ))}
+              );
+            })}
 
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Proactive NZ Care Feed</Text>
-              <Text style={styles.sectionCount}>{careTasks.length} tasks</Text>
+              <Text style={styles.sectionCount}>
+                {pinnedCareTasks.length + careTasks.length} tasks
+              </Text>
             </View>
-            {careTasks.map((task) => {
+            {[...pinnedCareTasks, ...careTasks].map((task) => {
               const done = Boolean(completedTaskIds[task.id]);
+              const isMaramataka = task.category === 'Maramataka';
+              const lunarIcon = isMaramataka
+                ? getMaramatakaLunarIcon(task.title, task.description)
+                : '';
               return (
                 <Pressable
                   key={task.id}
@@ -509,15 +605,18 @@ export default function App() {
                       <View
                         style={[
                           styles.catPill,
-                          task.category === 'Frost Alert' && styles.catPillFrost
+                          task.category === 'Frost Alert' && styles.catPillFrost,
+                          isMaramataka && styles.catPillMaramataka
                         ]}
                       >
                         <Text
                           style={[
                             styles.catPillText,
-                            task.category === 'Frost Alert' && styles.catPillFrostText
+                            task.category === 'Frost Alert' && styles.catPillFrostText,
+                            isMaramataka && styles.catPillMaramatakaText
                           ]}
                         >
+                          {lunarIcon ? `${lunarIcon} ` : ''}
                           {task.category.toUpperCase()}
                         </Text>
                       </View>
@@ -570,6 +669,7 @@ export default function App() {
                 plantingsByZone={plantingsByZone}
                 rotationHistoryByZone={rotationHistoryByZone}
                 selectedZoneId={selectedGardenZoneId}
+                initialSpeciesId={selectedBrushSpeciesId}
                 onSelectZoneId={setSelectedGardenZoneId}
                 onWorkspaceChanged={() => loadWorkspace(profile)}
               />
@@ -650,14 +750,34 @@ export default function App() {
                         {sp.isNppaWeed ? '⚠️ NPPA WEED' : sp.category.toUpperCase()}
                       </Text>
                     </View>
-                    <Text style={styles.cardMeta}>{sp.waterDemandLabel}</Text>
+                    {!sp.isNppaWeed && (
+                      <Pressable
+                        onPress={() => {
+                          setSelectedBrushSpeciesId(sp.id);
+                          setGardenSubTab('Beds');
+                          setTab('Garden');
+                        }}
+                        style={styles.plantInBedBtn}
+                      >
+                        <Text style={styles.plantInBedBtnText}>+ Plant in Bed</Text>
+                      </Pressable>
+                    )}
                   </View>
                   <Text style={styles.cardTitle}>
                     {sp.commonName} {sp.teReoName ? `· ${sp.teReoName}` : ''}
                   </Text>
-                  <Text style={styles.cardMeta}>
-                    {sp.botanicalName} · Spacing {sp.spacingCm}cm · {sp.frostTolerance}
-                  </Text>
+                  <Text style={styles.cardMeta}>{sp.botanicalName}</Text>
+                  <View style={styles.specPillsRow}>
+                    <View style={styles.specPill}>
+                      <Text style={styles.specPillText}>💧 {sp.waterDemandLabel}</Text>
+                    </View>
+                    <View style={styles.specPill}>
+                      <Text style={styles.specPillText}>❄️ {sp.frostTolerance}</Text>
+                    </View>
+                    <View style={styles.specPill}>
+                      <Text style={styles.specPillText}>📏 {sp.spacingCm}cm</Text>
+                    </View>
+                  </View>
                   <Text style={styles.cardText}>
                     {sp.isNppaWeed ? sp.nppaDisposalAdvice : sp.careSummary}
                   </Text>
@@ -699,6 +819,18 @@ export default function App() {
                 focusSection="ai"
                 onProfileUpdated={setProfile}
                 onWorkspaceChanged={() => loadWorkspace(profile)}
+                onPinCareNote={(title, summary) => {
+                  const newTask: CareTask = {
+                    id: `pinned_diag_${Date.now()}`,
+                    category: 'Biosecurity',
+                    priority: 'High',
+                    title,
+                    description: summary,
+                    dueDateIso: todayWeather.dateIso,
+                    completed: false
+                  };
+                  setPinnedCareTasks((prev) => [newTask, ...prev]);
+                }}
                 onUnlockPro={async () => {
                   const updated = await unlockProGarden(profile);
                   setProfile(updated);
@@ -1051,5 +1183,52 @@ const styles = StyleSheet.create({
   navItemActive: { borderTopWidth: 3, borderColor: '#14532D', backgroundColor: '#F0FDF4' },
   navIcon: { fontSize: 16 },
   navText: { fontSize: 11, fontWeight: '600', color: '#64748B' },
-  navTextActive: { color: '#14532D', fontWeight: '800' }
+  navTextActive: { color: '#14532D', fontWeight: '800' },
+  headerLocBtn: { alignSelf: 'flex-start', paddingVertical: 2 },
+  headerLocDrawer: {
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    gap: 6
+  },
+  headerLocHint: { fontSize: 11, fontWeight: '700', color: '#BBF7D0' },
+  headerLocChip: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    marginRight: 6
+  },
+  headerLocChipActive: { backgroundColor: '#DCFCE7' },
+  headerLocChipText: { fontSize: 12, fontWeight: '600', color: '#FFFFFF' },
+  headerLocChipTextActive: { color: '#14532D', fontWeight: '800' },
+  moistureWrap: { gap: 4, marginVertical: 2 },
+  moistureLabel: { fontSize: 11, fontWeight: '700', color: '#334155' },
+  moistureTrack: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden'
+  },
+  moistureFill: { height: '100%', borderRadius: 999 },
+  catPillMaramataka: { backgroundColor: '#FEF3C7' },
+  catPillMaramatakaText: { color: '#92400E' },
+  plantInBedBtn: {
+    backgroundColor: '#15803D',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 999
+  },
+  plantInBedBtnText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800' },
+  specPillsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  specPill: {
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999
+  },
+  specPillText: { fontSize: 11, fontWeight: '600', color: '#334155' }
 });

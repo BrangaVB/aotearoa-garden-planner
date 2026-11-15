@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import {
+  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -53,6 +54,7 @@ interface Props {
   onWorkspaceChanged: () => Promise<void>;
   onUnlockPro: () => Promise<void>;
   onBuyAiCredits: () => Promise<void>;
+  onPinCareNote?: (title: string, summary: string) => void;
 }
 
 type JournalToolTab = 'harvests' | 'ar' | 'sync';
@@ -87,7 +89,8 @@ export function JournalScreen({
   onProfileUpdated,
   onWorkspaceChanged,
   onUnlockPro,
-  onBuyAiCredits
+  onBuyAiCredits,
+  onPinCareNote
 }: Props) {
   // Journal segmented tab state
   const [activeJournalTab, setActiveJournalTab] = useState<JournalToolTab>('harvests');
@@ -247,6 +250,8 @@ export function JournalScreen({
     }
   };
 
+  const [pinnedDiagnosisIds, setPinnedDiagnosisIds] = useState<Record<string, boolean>>({});
+
   const totalHarvestKg = useMemo(
     () =>
       Math.round(
@@ -254,6 +259,24 @@ export function JournalScreen({
       ) / 10,
     [harvests]
   );
+
+  const harvestTotalsByCrop = useMemo(() => {
+    const map: Record<string, { name: string; grams: number }> = {};
+    for (const h of harvests) {
+      const name = PLANT_SPECIES_BY_ID[h.speciesId]?.commonName ?? h.speciesId;
+      const existing = map[h.speciesId];
+      map[h.speciesId] = {
+        name,
+        grams: (existing?.grams ?? 0) + (h.weightGrams ?? 0)
+      };
+    }
+    const list = Object.values(map).sort((a, b) => b.grams - a.grams).slice(0, 4);
+    const maxGrams = Math.max(1, list[0]?.grams ?? 1);
+    return list.map((item) => ({
+      ...item,
+      pct: Math.max(10, Math.round((item.grams / maxGrams) * 100)) as number
+    }));
+  }, [harvests]);
 
   const showAi = focusSection === 'all' || focusSection === 'ai';
   const showJournal = focusSection === 'all' || focusSection === 'journal';
@@ -333,10 +356,14 @@ export function JournalScreen({
             </View>
 
             {attachedPhoto && (
-              <View style={styles.rowBetween}>
-                <Text style={styles.badge}>
-                  📷 Photo attached ({attachedPhoto.width}×{attachedPhoto.height})
-                </Text>
+              <View style={styles.photoPreviewRow}>
+                <Image source={{ uri: attachedPhoto.uri }} style={styles.photoThumb} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.badge}>Photo ready for Vision AI</Text>
+                  <Text style={styles.cardMeta}>
+                    {attachedPhoto.width}×{attachedPhoto.height} px
+                  </Text>
+                </View>
                 <Pressable onPress={() => setAttachedPhoto(null)}>
                   <Text style={styles.cardMeta}>Clear</Text>
                 </Pressable>
@@ -366,19 +393,39 @@ export function JournalScreen({
               </Pressable>
             </View>
 
-            {diagnoses.slice(0, 3).map((d) => (
-              <View key={d.id} style={[styles.subCard, d.isNppaWeed && styles.nppaBox]}>
-                <Text style={styles.cardTitle}>
-                  {d.isNppaWeed ? '⚠️ ' : ''}
-                  {d.topDiagnosis} ({Math.round(d.confidence * 100)}%)
-                </Text>
-                {d.treatmentSteps.map((step) => (
-                  <Text key={step} style={styles.cardText}>
-                    • {step}
-                  </Text>
-                ))}
-              </View>
-            ))}
+            {diagnoses.slice(0, 3).map((d) => {
+              const pinned = Boolean(pinnedDiagnosisIds[d.id]);
+              return (
+                <View key={d.id} style={[styles.subCard, d.isNppaWeed && styles.nppaBox]}>
+                  <View style={styles.rowBetween}>
+                    <Text style={[styles.cardTitle, { flex: 1 }]}>
+                      {d.isNppaWeed ? '⚠️ ' : ''}
+                      {d.topDiagnosis} ({Math.round(d.confidence * 100)}%)
+                    </Text>
+                    {onPinCareNote && (
+                      <Pressable
+                        onPress={() => {
+                          if (pinned) return;
+                          onPinCareNote(
+                            `Action: ${d.topDiagnosis}`,
+                            d.treatmentSteps[0] ?? d.nppaGuidance ?? 'Inspect affected plants.'
+                          );
+                          setPinnedDiagnosisIds((prev) => ({ ...prev, [d.id]: true }));
+                        }}
+                        style={styles.pinBtn}
+                      >
+                        <Text style={styles.pinBtnText}>{pinned ? '✓ Pinned' : '📌 Pin to Today'}</Text>
+                      </Pressable>
+                    )}
+                  </View>
+                  {d.treatmentSteps.map((step) => (
+                    <Text key={step} style={styles.cardText}>
+                      • {step}
+                    </Text>
+                  ))}
+                </View>
+              );
+            })}
           </View>
         </>
       )}
@@ -485,6 +532,32 @@ export function JournalScreen({
                   <Text style={styles.primaryBtnText}>Log Harvest</Text>
                 </Pressable>
 
+                {harvestTotalsByCrop.length > 0 && (
+                  <View style={styles.yieldBarsCard}>
+                    <Text style={styles.subLabel}>Top Crop Yields</Text>
+                    {harvestTotalsByCrop.map((item) => (
+                      <View key={item.name} style={styles.yieldBarRow}>
+                        <View style={styles.rowBetween}>
+                          <Text style={styles.yieldBarName}>{item.name}</Text>
+                          <Text style={styles.cardMeta}>
+                            {item.grams >= 1000
+                              ? `${(item.grams / 1000).toFixed(1)} kg`
+                              : `${item.grams} g`}
+                          </Text>
+                        </View>
+                        <View style={styles.yieldBarTrack}>
+                          <View
+                            style={[
+                              styles.yieldBarFill,
+                              { width: `${item.pct}%` as `${number}%` }
+                            ]}
+                          />
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                )}
+
                 {harvests.length === 0 ? (
                   <View style={styles.emptyState}>
                     <Text style={styles.emptyStateIcon}>🌾</Text>
@@ -559,6 +632,26 @@ export function JournalScreen({
                     placeholderTextColor="#64748B"
                   />
                 </View>
+
+                {(() => {
+                  const w = Math.max(30, Number(arWidthCm) || 120);
+                  const l = Math.max(30, Number(arLengthCm) || 240);
+                  const maxSide = Math.max(w, l);
+                  const boxW = Math.max(56, Math.round((w / maxSide) * 140));
+                  const boxH = Math.max(44, Math.round((l / maxSide) * 110));
+                  const areaSqm = ((w / 100) * (l / 100)).toFixed(2);
+                  return (
+                    <View style={styles.arWireframeWrap}>
+                      <View style={[styles.arWireframeBox, { width: boxW, height: boxH }]}>
+                        <Text style={styles.arWireframeDim}>
+                          {w} × {l} cm
+                        </Text>
+                        <Text style={styles.arWireframeArea}>{areaSqm} m²</Text>
+                      </View>
+                    </View>
+                  );
+                })()}
+
                 <Pressable style={styles.primaryBtn} onPress={() => void handleSaveArBed()}>
                   <Text style={styles.primaryBtnText}>Save Measured Bed</Text>
                 </Pressable>
@@ -793,5 +886,72 @@ const styles = StyleSheet.create({
     alignItems: 'center'
   },
   outlineBtnText: { color: '#166534', fontSize: 12, fontWeight: '700' },
-  errorText: { fontSize: 12, color: '#DC2626', fontWeight: '600' }
+  errorText: { fontSize: 12, color: '#DC2626', fontWeight: '600' },
+  photoPreviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 10,
+    padding: 8
+  },
+  photoThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#DCFCE7'
+  },
+  pinBtn: {
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 999
+  },
+  pinBtnText: { fontSize: 11, fontWeight: '700', color: '#1D4ED8' },
+  yieldBarsCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    gap: 8
+  },
+  yieldBarRow: { gap: 4 },
+  yieldBarName: { fontSize: 12, fontWeight: '700', color: '#0F172A' },
+  yieldBarTrack: {
+    height: 7,
+    borderRadius: 999,
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden'
+  },
+  yieldBarFill: {
+    height: '100%',
+    borderRadius: 999,
+    backgroundColor: '#16A34A'
+  },
+  arWireframeWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 14,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0'
+  },
+  arWireframeBox: {
+    borderWidth: 2,
+    borderStyle: 'dashed',
+    borderColor: '#15803D',
+    backgroundColor: '#ECFDF5',
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 6
+  },
+  arWireframeDim: { fontSize: 11, fontWeight: '800', color: '#14532D' },
+  arWireframeArea: { fontSize: 10, fontWeight: '700', color: '#15803D', marginTop: 2 }
 });

@@ -447,6 +447,7 @@ export function CanvasScreen({
                 : baseGy;
             const active = selectedZone?.id === z.id;
             const plantCount = (plantingsByZone[z.id] ?? []).length;
+            const sunHours = zoneSunSummaries.find((s) => s.zone.id === z.id)?.sun.sunlitHours ?? 0;
             return (
               <DraggableCanvasItem
                 key={z.id}
@@ -469,15 +470,17 @@ export function CanvasScreen({
                   {
                     left: gx * PX_PER_CM,
                     top: gy * PX_PER_CM,
-                    width: Math.max(44, z.lengthCm * PX_PER_CM),
-                    height: Math.max(30, z.widthCm * PX_PER_CM)
+                    width: Math.max(54, z.lengthCm * PX_PER_CM),
+                    height: Math.max(32, z.widthCm * PX_PER_CM)
                   }
                 ]}
               >
                 <Text style={[styles.bedText, active && styles.bedTextActive]} numberOfLines={1}>
                   ⠿ {z.name}
                 </Text>
-                <Text style={styles.bedCountText}>{plantCount} 🌱</Text>
+                <Text style={styles.bedCountText} numberOfLines={1}>
+                  {plantCount} 🌱 · ☀️ {sunHours}h
+                </Text>
               </DraggableCanvasItem>
             );
           })}

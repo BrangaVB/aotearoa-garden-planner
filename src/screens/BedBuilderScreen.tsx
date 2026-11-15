@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Pressable,
   ScrollView,
@@ -43,6 +43,7 @@ interface Props {
   plantingsByZone: Record<string, Planting[]>;
   rotationHistoryByZone?: Record<string, RotationHistoryEntry[]>;
   selectedZoneId?: string;
+  initialSpeciesId?: string;
   onSelectZoneId?: (zoneId: string) => void;
   onWorkspaceChanged: () => Promise<void>;
 }
@@ -209,6 +210,7 @@ export function BedBuilderScreen({
   plantingsByZone,
   rotationHistoryByZone = {},
   selectedZoneId: controlledZoneId,
+  initialSpeciesId,
   onSelectZoneId,
   onWorkspaceChanged
 }: Props) {
@@ -220,6 +222,7 @@ export function BedBuilderScreen({
   };
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [showPlantPicker, setShowPlantPicker] = useState(false);
+  const [quickPaintMode, setQuickPaintMode] = useState(false);
 
   // Quick-start preset & custom bed form state
   const [selectedPresetId, setSelectedPresetId] = useState<string>(BED_PRESETS[0]?.id ?? 'raised-120x240');
@@ -237,10 +240,18 @@ export function BedBuilderScreen({
   const [plantQuery, setPlantQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<PlantCategory | undefined>(undefined);
   const [selectedSpecies, setSelectedSpecies] = useState<PlantSpecies | null>(
-    NZ_PLANT_CATALOG[0] ?? null
+    (initialSpeciesId ? PLANT_SPECIES_BY_ID[initialSpeciesId] : undefined) ?? NZ_PLANT_CATALOG[0] ?? null
   );
   const [pendingCell, setPendingCell] = useState<{ row: number; col: number } | null>(null);
   const [validation, setValidation] = useState<PlacementValidationResult | null>(null);
+
+  useEffect(() => {
+    if (initialSpeciesId && PLANT_SPECIES_BY_ID[initialSpeciesId]) {
+      setSelectedSpecies(PLANT_SPECIES_BY_ID[initialSpeciesId] ?? null);
+      setPendingCell(null);
+      setValidation(null);
+    }
+  }, [initialSpeciesId]);
 
   const filteredSpecies = useMemo(
     () => searchPlantCatalog(plantQuery, selectedCategory).slice(0, 24),
@@ -341,8 +352,9 @@ export function BedBuilderScreen({
     await onWorkspaceChanged();
   };
 
-  const handleCellPress = (row: number, col: number) => {
+  const handleCellPress = async (row: number, col: number) => {
     if (!activeZone || !selectedSpecies) return;
+    const occupant = activePlantings.find((p) => p.gridRow === row && p.gridCol === col);
     const result = validatePlantingPlacement({
       zone: activeZone,
       candidateSpecies: selectedSpecies,
@@ -352,6 +364,24 @@ export function BedBuilderScreen({
       cellSizeCm: 25,
       rotationHistory: rotationHistoryByZone[activeZone.id] ?? []
     });
+
+    if (quickPaintMode && !occupant && result.allowed) {
+      await upsertPlanting({
+        id: `plant_${Date.now()}_${row}_${col}`,
+        zoneId: activeZone.id,
+        speciesId: selectedSpecies.id,
+        plantedDateIso: new Date().toISOString().slice(0, 10),
+        growthStage: 'Seedling',
+        gridRow: row,
+        gridCol: col,
+        moistureDeficitMm: 0
+      });
+      setPendingCell({ row, col });
+      setValidation(result);
+      await onWorkspaceChanged();
+      return;
+    }
+
     setPendingCell({ row, col });
     setValidation(result);
   };
@@ -595,13 +625,23 @@ export function BedBuilderScreen({
               </Text>
             </View>
             <Pressable
+              style={[styles.brushToggleBtn, quickPaintMode && styles.brushToggleBtnActive]}
+              onPress={() => setQuickPaintMode((prev) => !prev)}
+            >
+              <Text
+                style={[styles.brushToggleText, quickPaintMode && styles.brushToggleTextActive]}
+              >
+                {quickPaintMode ? '🖌️ Quick On' : '🖌️ Quick'}
+              </Text>
+            </Pressable>
+            <Pressable
               style={[styles.brushToggleBtn, showPlantPicker && styles.brushToggleBtnActive]}
               onPress={() => setShowPlantPicker((prev) => !prev)}
             >
               <Text
                 style={[styles.brushToggleText, showPlantPicker && styles.brushToggleTextActive]}
               >
-                {showPlantPicker ? 'Done' : 'Change Plant'}
+                {showPlantPicker ? 'Done' : 'Change'}
               </Text>
             </Pressable>
           </View>
@@ -690,7 +730,7 @@ export function BedBuilderScreen({
           <View style={styles.timberFrame}>
             <View style={styles.soilTopRow}>
               <Text style={styles.soilTitle}>
-                25 cm Planting Grid ({grid.rows}×{grid.cols})
+                25 cm Grid ({grid.rows}×{grid.cols}){grid.cols > 5 ? ' · ← Scroll →' : ''}
               </Text>
               <View style={styles.aspectBadge}>
                 <Text style={styles.aspectBadgeText}>☀️ {activeZone.sunAspect}</Text>
