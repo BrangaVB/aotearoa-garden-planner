@@ -20,10 +20,6 @@ import {
   SeasonPreset
 } from '../engine/sunPathEngine';
 import {
-  PRO_FEATURES,
-  PRO_GARDEN_PRICE_NZD
-} from '../services/monetizationService';
-import {
   GardenObstacle,
   GardenProfile,
   GardenZone,
@@ -38,6 +34,17 @@ interface Props {
   onUnlockPro: () => Promise<void>;
 }
 
+interface ObstaclePreset {
+  label: string;
+  name: string;
+  obstacleType: ObstacleType;
+  xCm: number;
+  yCm: number;
+  widthCm: number;
+  lengthCm: number;
+  heightCm: number;
+}
+
 const SEASONS: SeasonPreset[] = [
   'Summer Solstice (Dec)',
   'Equinox (Mar/Sep)',
@@ -45,10 +52,51 @@ const SEASONS: SeasonPreset[] = [
 ];
 const HOURS = [8, 10, 12, 14, 16, 18];
 const OBSTACLE_TYPES: ObstacleType[] = ['Fence', 'Tree', 'House Wall', 'Shed'];
+const OBSTACLE_PRESETS: ObstaclePreset[] = [
+  {
+    label: '+ 1.8m Fence',
+    name: '1.8m Fence',
+    obstacleType: 'Fence',
+    xCm: 180,
+    yCm: 40,
+    widthCm: 40,
+    lengthCm: 360,
+    heightCm: 180
+  },
+  {
+    label: '+ 3m Tree',
+    name: '3m Tree',
+    obstacleType: 'Tree',
+    xCm: 140,
+    yCm: 80,
+    widthCm: 140,
+    lengthCm: 140,
+    heightCm: 300
+  },
+  {
+    label: '+ 4m House Wall',
+    name: '4m House Wall',
+    obstacleType: 'House Wall',
+    xCm: 520,
+    yCm: 35,
+    widthCm: 60,
+    lengthCm: 400,
+    heightCm: 400
+  }
+];
+
+const CARDINALS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'] as const;
+const NUDGE_STEP_CM = 50;
 const CANVAS_WIDTH_PX = 320;
 const CANVAS_HEIGHT_PX = 240;
 const GARDEN_SPAN_CM = 1000; // 10m × 7.5m backyard viewport
 const PX_PER_CM = CANVAS_WIDTH_PX / GARDEN_SPAN_CM;
+
+function formatCardinalDirection(azimuthDeg: number): string {
+  const normalized = ((azimuthDeg % 360) + 360) % 360;
+  const index = Math.round(normalized / 45) % 8;
+  return CARDINALS[index] ?? 'N';
+}
 
 export function CanvasScreen({
   profile,
@@ -89,6 +137,16 @@ export function CanvasScreen({
     [zones, obstacles, profile.latitude, dayOfYear]
   );
 
+  const sunArcProgressPct = useMemo(() => {
+    const clampedHour = Math.max(6, Math.min(18, hour));
+    return Math.round(((clampedHour - 6) / 12) * 100);
+  }, [hour]);
+
+  const sunAltitudePct = useMemo(() => {
+    if (!solar.isDaylight) return 0;
+    return Math.max(6, Math.min(100, Math.round((solar.altitudeDeg / 85) * 100)));
+  }, [solar.isDaylight, solar.altitudeDeg]);
+
   const handleNudgeZone = async (dxCm: number, dyCm: number) => {
     if (!selectedZone) return;
     const curX = selectedZone.canvasGeometry?.xCm ?? 80;
@@ -115,30 +173,38 @@ export function CanvasScreen({
     await onWorkspaceChanged();
   };
 
-  if (!profile.isPro) {
-    return (
-      <View style={styles.card}>
-        <Text style={styles.badge}>PRO GARDEN FEATURE</Text>
-        <Text style={styles.cardTitle}>2D Sun-Path Canvas & Shadow Simulator</Text>
-        <Text style={styles.cardText}>
-          Drag & position beds, fences, and trees on a 10m×7.5m backyard canvas and scrub Southern
-          Hemisphere sun angles across Summer and Winter solstices.
-        </Text>
-        {PRO_FEATURES.map((f) => (
-          <Text key={f} style={styles.featureItem}>
-            ✓ {f}
-          </Text>
-        ))}
-        <Pressable style={styles.primaryBtn} onPress={() => void onUnlockPro()}>
-          <Text style={styles.primaryBtnText}>Unlock Pro Garden · {PRO_GARDEN_PRICE_NZD}</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  const handleQuickAddPreset = async (preset: ObstaclePreset) => {
+    await upsertObstacle({
+      id: `obs_${Date.now()}`,
+      profileId: profile.id,
+      name: preset.name,
+      obstacleType: preset.obstacleType,
+      xCm: preset.xCm,
+      yCm: preset.yCm,
+      widthCm: preset.widthCm,
+      lengthCm: preset.lengthCm,
+      heightCm: preset.heightCm
+    });
+    await onWorkspaceChanged();
+  };
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionTitle}>2D Sun-Path & Shadow Canvas</Text>
+      {!profile.isPro && (
+        <View style={styles.proBanner}>
+          <View style={styles.proBannerTextWrap}>
+            <Text style={styles.proBannerTitle}>Pro Feature — Unlock $14.99</Text>
+            <Text style={styles.proBannerSub}>
+              Previewing Sun-Path Canvas: scrub solstices &amp; test shadows before unlocking.
+            </Text>
+          </View>
+          <Pressable style={styles.proBannerBtn} onPress={() => void onUnlockPro()}>
+            <Text style={styles.proBannerBtnText}>Unlock</Text>
+          </Pressable>
+        </View>
+      )}
+
+      <Text style={styles.sectionTitle}>2D Sun-Path &amp; Shadow Canvas</Text>
 
       <View style={styles.card}>
         <Text style={styles.label}>Season (Southern Hemisphere)</Text>
@@ -169,15 +235,46 @@ export function CanvasScreen({
           ))}
         </ScrollView>
 
-        <Text style={styles.cardMeta}>
-          {solar.isDaylight
-            ? `Sun Altitude ${solar.altitudeDeg}° · Azimuth ${solar.azimuthDeg}° (0° = Due North)`
-            : 'Below horizon — night'}
-        </Text>
+        <View style={[styles.sunArcPill, !solar.isDaylight && styles.sunArcPillNight]}>
+          <View style={styles.sunArcHeader}>
+            <Text style={[styles.sunArcTitle, !solar.isDaylight && styles.sunArcTitleNight]}>
+              {solar.isDaylight
+                ? `☀️ ${solar.altitudeDeg}° Alt · ${formatCardinalDirection(solar.azimuthDeg)} (${solar.azimuthDeg}°)`
+                : '🌙 Below horizon — night'}
+            </Text>
+            <Text style={[styles.sunArcTime, !solar.isDaylight && styles.sunArcTitleNight]}>
+              {hour}:00
+            </Text>
+          </View>
+          <View style={styles.sunArcTrack}>
+            <View
+              style={[
+                styles.sunArcFill,
+                { width: `${sunAltitudePct}%` },
+                !solar.isDaylight && styles.sunArcFillNight
+              ]}
+            />
+            {solar.isDaylight && (
+              <View style={[styles.sunArcDot, { left: `${sunArcProgressPct}%` }]} />
+            )}
+          </View>
+        </View>
 
         <View style={styles.canvas}>
           <Text style={styles.compassNorth}>N (Max NZ Sun)</Text>
           <Text style={styles.compassSouth}>S</Text>
+          <Text style={styles.compassWest}>W</Text>
+          <Text style={styles.compassEast}>E</Text>
+
+          <View style={styles.compassBadge}>
+            <Text style={styles.compassBadgeN}>N</Text>
+            <View style={styles.compassBadgeMid}>
+              <Text style={styles.compassBadgeDir}>W</Text>
+              <Text style={styles.compassBadgeCenter}>+</Text>
+              <Text style={styles.compassBadgeDir}>E</Text>
+            </View>
+            <Text style={styles.compassBadgeDir}>S</Text>
+          </View>
 
           {obstacles.map((obs) => {
             const shadow = computeShadowProjection(obs.heightCm, solar, 450);
@@ -229,8 +326,8 @@ export function CanvasScreen({
                   }
                 ]}
               >
-                <Text style={styles.bedText} numberOfLines={2}>
-                  {z.name}
+                <Text style={[styles.bedText, active && styles.bedTextActive]} numberOfLines={2}>
+                  {active ? `● ${z.name}` : z.name}
                 </Text>
               </Pressable>
             );
@@ -238,20 +335,41 @@ export function CanvasScreen({
         </View>
 
         {selectedZone && (
-          <View style={styles.nudgeRow}>
-            <Text style={styles.cardMeta}>Move {selectedZone.name}:</Text>
-            <Pressable style={styles.nudgeBtn} onPress={() => void handleNudgeZone(-50, 0)}>
-              <Text style={styles.nudgeText}>← W</Text>
-            </Pressable>
-            <Pressable style={styles.nudgeBtn} onPress={() => void handleNudgeZone(0, -50)}>
-              <Text style={styles.nudgeText}>↑ N</Text>
-            </Pressable>
-            <Pressable style={styles.nudgeBtn} onPress={() => void handleNudgeZone(0, 50)}>
-              <Text style={styles.nudgeText}>↓ S</Text>
-            </Pressable>
-            <Pressable style={styles.nudgeBtn} onPress={() => void handleNudgeZone(50, 0)}>
-              <Text style={styles.nudgeText}>→ E</Text>
-            </Pressable>
+          <View style={styles.nudgePanel}>
+            <View style={styles.nudgeHeader}>
+              <Text style={styles.nudgeLabel}>
+                Selected Bed: <Text style={styles.bold}>{selectedZone.name}</Text>
+              </Text>
+              <View style={styles.stepBadge}>
+                <Text style={styles.stepBadgeText}>Step: {NUDGE_STEP_CM}cm</Text>
+              </View>
+            </View>
+            <View style={styles.nudgeRow}>
+              <Pressable
+                style={styles.nudgeBtn}
+                onPress={() => void handleNudgeZone(-NUDGE_STEP_CM, 0)}
+              >
+                <Text style={styles.nudgeText}>← W</Text>
+              </Pressable>
+              <Pressable
+                style={styles.nudgeBtn}
+                onPress={() => void handleNudgeZone(0, -NUDGE_STEP_CM)}
+              >
+                <Text style={styles.nudgeText}>↑ N</Text>
+              </Pressable>
+              <Pressable
+                style={styles.nudgeBtn}
+                onPress={() => void handleNudgeZone(0, NUDGE_STEP_CM)}
+              >
+                <Text style={styles.nudgeText}>↓ S</Text>
+              </Pressable>
+              <Pressable
+                style={styles.nudgeBtn}
+                onPress={() => void handleNudgeZone(NUDGE_STEP_CM, 0)}
+              >
+                <Text style={styles.nudgeText}>→ E</Text>
+              </Pressable>
+            </View>
           </View>
         )}
       </View>
@@ -267,6 +385,20 @@ export function CanvasScreen({
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Shade Obstacles ({obstacles.length})</Text>
+        <Text style={styles.label}>Quick Add (1-Tap)</Text>
+        <View style={styles.nudgeRow}>
+          {OBSTACLE_PRESETS.map((preset) => (
+            <Pressable
+              key={preset.label}
+              style={styles.presetChip}
+              onPress={() => void handleQuickAddPreset(preset)}
+            >
+              <Text style={styles.presetChipText}>{preset.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <Text style={styles.label}>Custom Obstacle</Text>
         <TextInput
           style={styles.input}
           value={newObsName}
@@ -314,6 +446,28 @@ export function CanvasScreen({
 
 const styles = StyleSheet.create({
   container: { gap: 12 },
+  proBanner: {
+    backgroundColor: '#ECFDF5',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 10
+  },
+  proBannerTextWrap: { flex: 1, gap: 2 },
+  proBannerTitle: { fontSize: 13, fontWeight: '800', color: '#14532D' },
+  proBannerSub: { fontSize: 11, color: '#166534', lineHeight: 15 },
+  proBannerBtn: {
+    backgroundColor: '#15803D',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999
+  },
+  proBannerBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   sectionTitle: { fontSize: 17, fontWeight: '800', color: '#0F172A' },
   card: {
     backgroundColor: '#FFFFFF',
@@ -323,12 +477,9 @@ const styles = StyleSheet.create({
     borderColor: '#E2E8F0',
     gap: 8
   },
-  badge: { fontSize: 11, fontWeight: '700', color: '#15803D' },
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
-  cardMeta: { fontSize: 12, color: '#64748B' },
   cardText: { fontSize: 13, color: '#334155', lineHeight: 18 },
   bold: { fontWeight: '700', color: '#0F172A' },
-  featureItem: { fontSize: 13, color: '#15803D', fontWeight: '600' },
   label: { fontSize: 12, fontWeight: '700', color: '#334155' },
   chipScroll: { flexGrow: 0 },
   chip: {
@@ -343,6 +494,53 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: '#166534', borderColor: '#166534' },
   chipText: { fontSize: 12, fontWeight: '600', color: '#334155' },
   chipTextActive: { color: '#FFFFFF' },
+  sunArcPill: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 6
+  },
+  sunArcPillNight: {
+    backgroundColor: '#F1F5F9',
+    borderColor: '#CBD5E1'
+  },
+  sunArcHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8
+  },
+  sunArcTitle: { fontSize: 12, fontWeight: '700', color: '#92400E' },
+  sunArcTitleNight: { color: '#475569' },
+  sunArcTime: { fontSize: 11, fontWeight: '700', color: '#B45309' },
+  sunArcTrack: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#FEF3C7',
+    position: 'relative',
+    justifyContent: 'center'
+  },
+  sunArcFill: {
+    height: 6,
+    borderRadius: 999,
+    backgroundColor: '#F59E0B'
+  },
+  sunArcFillNight: {
+    backgroundColor: '#94A3B8'
+  },
+  sunArcDot: {
+    position: 'absolute',
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: '#D97706',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
+    marginLeft: -5
+  },
   canvas: {
     width: CANVAS_WIDTH_PX,
     height: CANVAS_HEIGHT_PX,
@@ -370,6 +568,39 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#64748B'
   },
+  compassWest: {
+    position: 'absolute',
+    left: 6,
+    top: CANVAS_HEIGHT_PX / 2 - 7,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B'
+  },
+  compassEast: {
+    position: 'absolute',
+    right: 6,
+    top: CANVAS_HEIGHT_PX / 2 - 7,
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B'
+  },
+  compassBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderWidth: 1,
+    borderColor: '#BBF7D0',
+    borderRadius: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    alignItems: 'center',
+    zIndex: 10
+  },
+  compassBadgeN: { fontSize: 9, fontWeight: '800', color: '#15803D', lineHeight: 11 },
+  compassBadgeMid: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  compassBadgeCenter: { fontSize: 9, fontWeight: '700', color: '#94A3B8', lineHeight: 10 },
+  compassBadgeDir: { fontSize: 8, fontWeight: '700', color: '#475569', lineHeight: 10 },
   shadowBox: {
     position: 'absolute',
     backgroundColor: 'rgba(15, 23, 42, 0.22)',
@@ -393,16 +624,57 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 2
   },
-  bedBoxActive: { borderWidth: 2, borderColor: '#1D4ED8' },
+  bedBoxActive: {
+    backgroundColor: '#DBEAFE',
+    borderWidth: 2.5,
+    borderColor: '#1D4ED8',
+    shadowColor: '#1D4ED8',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.22,
+    shadowRadius: 3,
+    elevation: 2
+  },
   bedText: { fontSize: 9, fontWeight: '700', color: '#14532D', textAlign: 'center' },
+  bedTextActive: { color: '#1E3A8A' },
+  nudgePanel: {
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 10,
+    padding: 10,
+    gap: 8
+  },
+  nudgeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8
+  },
+  nudgeLabel: { fontSize: 12, color: '#334155', flex: 1 },
+  stepBadge: {
+    backgroundColor: '#DBEAFE',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3
+  },
+  stepBadgeText: { fontSize: 11, fontWeight: '700', color: '#1D4ED8' },
   nudgeRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 6 },
   nudgeBtn: {
     backgroundColor: '#E2E8F0',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 6
   },
   nudgeText: { fontSize: 12, fontWeight: '700', color: '#0F172A' },
+  presetChip: {
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 999
+  },
+  presetChipText: { fontSize: 12, fontWeight: '700', color: '#166534' },
   input: {
     backgroundColor: '#F8FAFC',
     borderWidth: 1,

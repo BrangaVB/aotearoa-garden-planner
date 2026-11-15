@@ -45,6 +45,28 @@ interface Props {
   onBuyAiCredits: () => Promise<void>;
 }
 
+type JournalToolTab = 'harvests' | 'ar' | 'sync';
+
+const SYMPTOM_QUICK_CHIPS = [
+  'Curled tomato leaves',
+  'Fluffy white nymphs',
+  'Wandering willie weed',
+  'Powdery white mildew'
+] as const;
+
+const QUICK_QUANTITIES = [
+  { label: '250g', grams: '250' },
+  { label: '500g', grams: '500' },
+  { label: '1 kg', grams: '1000' },
+  { label: '2 kg', grams: '2000' }
+] as const;
+
+const JOURNAL_TOOL_TABS: ReadonlyArray<{ id: JournalToolTab; label: string }> = [
+  { id: 'harvests', label: '🌾 Harvests' },
+  { id: 'ar', label: '📐 AR Measure' },
+  { id: 'sync', label: '☁️ Sync & Pro' }
+];
+
 export function JournalScreen({
   profile,
   zones,
@@ -57,6 +79,9 @@ export function JournalScreen({
   onUnlockPro,
   onBuyAiCredits
 }: Props) {
+  // Journal segmented tab state
+  const [activeJournalTab, setActiveJournalTab] = useState<JournalToolTab>('harvests');
+
   // AI Diagnostics state
   const [diagNotes, setDiagNotes] = useState('');
   const [diagError, setDiagError] = useState<string | null>(null);
@@ -65,8 +90,8 @@ export function JournalScreen({
   // Harvest Log state
   const [harvestZoneId, setHarvestZoneId] = useState(zones[0]?.id ?? '');
   const [harvestSpeciesId, setHarvestSpeciesId] = useState('tomato-beefsteak');
-  const [quantityLabel, setQuantityLabel] = useState('1.2 kg');
-  const [weightGrams, setWeightGrams] = useState('1200');
+  const [quantityLabel, setQuantityLabel] = useState('1 kg');
+  const [weightGrams, setWeightGrams] = useState('1000');
   const [harvestNotes, setHarvestNotes] = useState('');
 
   // AR Bed Mapper state (with manual dimension fallback)
@@ -79,6 +104,18 @@ export function JournalScreen({
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const quota = useMemo(() => getAiQuotaStatus(profile), [profile]);
+  const quotaPercent = Math.min(
+    100,
+    Math.round((quota.usedThisMonth / Math.max(1, quota.monthlyLimit)) * 100)
+  );
+  const quotaBarWidth: `${number}%` = `${quotaPercent}%`;
+  const quotaBarColor =
+    quota.usedThisMonth >= quota.monthlyLimit
+      ? '#DC2626'
+      : quotaPercent >= 80
+        ? '#D97706'
+        : '#16A34A';
+
   const edibleSpecies = useMemo(
     () =>
       NZ_PLANT_CATALOG.filter(
@@ -87,12 +124,15 @@ export function JournalScreen({
     []
   );
 
-  const handleRunDiagnosis = async () => {
+  const handleRunDiagnosis = async (overrideNotes?: string) => {
     setDiagError(null);
-    const trimmed = diagNotes.trim();
+    const trimmed = (overrideNotes ?? diagNotes).trim();
     if (!trimmed) {
       setDiagError('Describe the leaf symptoms, insect, or mystery weed first.');
       return;
+    }
+    if (overrideNotes !== undefined) {
+      setDiagNotes(trimmed);
     }
     setDiagBusy(true);
     try {
@@ -205,15 +245,60 @@ export function JournalScreen({
           <View style={styles.card}>
             <View style={styles.rowBetween}>
               <Text style={styles.cardTitle}>Plant, Pest & NPPA Weed Scanner</Text>
-              <Text style={styles.badge}>
-                {quota.remainingTotal} scans left ({quota.usedThisMonth}/{quota.monthlyLimit})
-              </Text>
+              <View style={styles.quotaBadgePill}>
+                <Text style={styles.badge}>
+                  {quota.remainingTotal} left
+                </Text>
+              </View>
             </View>
+
+            <View style={styles.quotaSection}>
+              <View style={styles.rowBetween}>
+                <Text style={styles.quotaLabel}>
+                  Monthly scans: {quota.usedThisMonth} / {quota.monthlyLimit}
+                </Text>
+                <Text style={styles.quotaBonusText}>
+                  +{quota.bonusCredits} bonus {quota.bonusCredits === 1 ? 'credit' : 'credits'}
+                </Text>
+              </View>
+              <View style={styles.progressTrack}>
+                <View
+                  style={[
+                    styles.progressFill,
+                    { width: quotaBarWidth, backgroundColor: quotaBarColor }
+                  ]}
+                />
+              </View>
+            </View>
+
+            <Text style={styles.subLabel}>1-tap test symptoms</Text>
+            <View style={styles.wrapChips}>
+              {SYMPTOM_QUICK_CHIPS.map((symptom) => {
+                const active = diagNotes.trim().toLowerCase() === symptom.toLowerCase();
+                return (
+                  <Pressable
+                    key={symptom}
+                    onPress={() => void handleRunDiagnosis(symptom)}
+                    disabled={diagBusy}
+                    style={[
+                      styles.quickChip,
+                      active && styles.chipActive,
+                      diagBusy && styles.disabledBtn
+                    ]}
+                  >
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                      ⚡ {symptom}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
             <TextInput
               style={styles.input}
               value={diagNotes}
               onChangeText={setDiagNotes}
-              placeholder="Describe photo/symptoms (e.g. 'wandering tradescantia' or 'curled tomato leaves')"
+              placeholder="Or describe photo/symptoms (e.g. 'wandering tradescantia')"
               placeholderTextColor="#64748B"
             />
             {diagError && <Text style={styles.errorText}>{diagError}</Text>}
@@ -251,118 +336,211 @@ export function JournalScreen({
 
       {showJournal && (
         <>
-          <Text style={styles.sectionTitle}>AR / LiDAR Bed Mapper (Phase 3)</Text>
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Measure Bed Footprint</Text>
-            <Text style={styles.cardMeta}>
-              Capture 4 corners via ARKit/ARCore plane detection or enter/adjust dimensions manually.
-            </Text>
-            <Pressable style={styles.outlineBtn} onPress={handleSimulateArCapture}>
-              <Text style={styles.outlineBtnText}>Capture AR Plane Corners</Text>
-            </Pressable>
-            {arStatus && <Text style={styles.cardText}>{arStatus}</Text>}
-            <TextInput
-              style={styles.input}
-              value={arBedName}
-              onChangeText={setArBedName}
-              placeholder="Bed name"
-              placeholderTextColor="#64748B"
-            />
-            <View style={styles.rowBetween}>
-              <TextInput
-                style={[styles.input, { flex: 1 }]}
-                value={arWidthCm}
-                onChangeText={setArWidthCm}
-                keyboardType="numeric"
-                placeholder="Width cm"
-              />
-              <TextInput
-                style={[styles.input, { flex: 1 }]}
-                value={arLengthCm}
-                onChangeText={setArLengthCm}
-                keyboardType="numeric"
-                placeholder="Length cm"
-              />
-            </View>
-            <Pressable style={styles.primaryBtn} onPress={() => void handleSaveArBed()}>
-              <Text style={styles.primaryBtnText}>Save Measured Bed</Text>
-            </Pressable>
+          <View style={styles.segmentedBar}>
+            {JOURNAL_TOOL_TABS.map((tab) => {
+              const active = activeJournalTab === tab.id;
+              return (
+                <Pressable
+                  key={tab.id}
+                  onPress={() => setActiveJournalTab(tab.id)}
+                  style={[styles.segmentedPill, active && styles.segmentedPillActive]}
+                >
+                  <Text
+                    style={[
+                      styles.segmentedPillText,
+                      active && styles.segmentedPillTextActive
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {tab.label}
+                  </Text>
+                </Pressable>
+              );
+            })}
           </View>
 
-      <Text style={styles.sectionTitle}>Harvest & Yield Journal ({totalHarvestKg} kg total)</Text>
-      <View style={styles.card}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
-          {edibleSpecies.map((sp) => {
-            const active = harvestSpeciesId === sp.id;
-            return (
-              <Pressable
-                key={sp.id}
-                onPress={() => setHarvestSpeciesId(sp.id)}
-                style={[styles.chip, active && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, active && styles.chipTextActive]}>
-                  {sp.commonName}
+          {activeJournalTab === 'harvests' && (
+            <>
+              <View style={styles.rowBetween}>
+                <Text style={styles.sectionTitle}>Harvest & Yield Journal</Text>
+                <View style={styles.totalPill}>
+                  <Text style={styles.totalPillText}>{totalHarvestKg} kg total</Text>
+                </View>
+              </View>
+              <View style={styles.card}>
+                <Text style={styles.subLabel}>Crop</Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                  {edibleSpecies.map((sp) => {
+                    const active = harvestSpeciesId === sp.id;
+                    return (
+                      <Pressable
+                        key={sp.id}
+                        onPress={() => setHarvestSpeciesId(sp.id)}
+                        style={[styles.chip, active && styles.chipActive]}
+                      >
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                          {sp.commonName}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+
+                <Text style={styles.subLabel}>Quick quantity</Text>
+                <View style={styles.wrapChips}>
+                  {QUICK_QUANTITIES.map((q) => {
+                    const active =
+                      quantityLabel.trim() === q.label && weightGrams.trim() === q.grams;
+                    return (
+                      <Pressable
+                        key={q.label}
+                        onPress={() => {
+                          setQuantityLabel(q.label);
+                          setWeightGrams(q.grams);
+                        }}
+                        style={[styles.quickChip, active && styles.chipActive]}
+                      >
+                        <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                          {q.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <View style={styles.rowBetween}>
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    value={quantityLabel}
+                    onChangeText={setQuantityLabel}
+                    placeholder="Quantity (e.g. 1.2 kg, 6 lemons)"
+                    placeholderTextColor="#64748B"
+                  />
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    value={weightGrams}
+                    onChangeText={setWeightGrams}
+                    keyboardType="numeric"
+                    placeholder="Weight (g)"
+                    placeholderTextColor="#64748B"
+                  />
+                </View>
+                <TextInput
+                  style={styles.input}
+                  value={harvestNotes}
+                  onChangeText={setHarvestNotes}
+                  placeholder="Notes (flavour, pest pressure, variety)..."
+                  placeholderTextColor="#64748B"
+                />
+                <Pressable style={styles.primaryBtn} onPress={() => void handleLogHarvest()}>
+                  <Text style={styles.primaryBtnText}>Log Harvest</Text>
+                </Pressable>
+
+                {harvests.length === 0 ? (
+                  <View style={styles.emptyState}>
+                    <Text style={styles.emptyStateIcon}>🌾</Text>
+                    <Text style={styles.emptyStateTitle}>No harvests logged yet</Text>
+                    <Text style={styles.emptyStateText}>
+                      Select a crop above, tap a quick weight, and record your first garden yield.
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.harvestList}>
+                    {harvests.slice(0, 5).map((h) => {
+                      const sp = PLANT_SPECIES_BY_ID[h.speciesId];
+                      const z = zones.find((zone) => zone.id === h.zoneId);
+                      return (
+                        <View key={h.id} style={styles.subCard}>
+                          <View style={styles.rowBetween}>
+                            <Text style={styles.cardTitle}>
+                              {sp?.commonName ?? h.speciesId} · {h.quantityLabel}
+                            </Text>
+                            <Text style={styles.cardMeta}>{h.harvestedAtIso}</Text>
+                          </View>
+                          {(z || h.notes) && (
+                            <Text style={styles.cardMeta}>
+                              {z ? z.name : ''}
+                              {z && h.notes ? ' — ' : ''}
+                              {h.notes ?? ''}
+                            </Text>
+                          )}
+                        </View>
+                      );
+                    })}
+                  </View>
+                )}
+              </View>
+            </>
+          )}
+
+          {activeJournalTab === 'ar' && (
+            <>
+              <Text style={styles.sectionTitle}>AR / LiDAR Bed Mapper</Text>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>Measure Bed Footprint</Text>
+                <Text style={styles.cardMeta}>
+                  Capture 4 corners via ARKit/ARCore plane detection or enter/adjust dimensions manually.
                 </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-        <View style={styles.rowBetween}>
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={quantityLabel}
-            onChangeText={setQuantityLabel}
-            placeholder="Quantity (e.g. 1.2 kg, 6 lemons)"
-          />
-          <TextInput
-            style={[styles.input, { flex: 1 }]}
-            value={weightGrams}
-            onChangeText={setWeightGrams}
-            keyboardType="numeric"
-            placeholder="Weight (g)"
-          />
-        </View>
-        <TextInput
-          style={styles.input}
-          value={harvestNotes}
-          onChangeText={setHarvestNotes}
-          placeholder="Notes (flavour, pest pressure, variety)..."
-          placeholderTextColor="#64748B"
-        />
-        <Pressable style={styles.primaryBtn} onPress={() => void handleLogHarvest()}>
-          <Text style={styles.primaryBtnText}>Log Harvest</Text>
-        </Pressable>
+                <Pressable style={styles.outlineBtn} onPress={handleSimulateArCapture}>
+                  <Text style={styles.outlineBtnText}>Capture AR Plane Corners</Text>
+                </Pressable>
+                {arStatus && <Text style={styles.cardText}>{arStatus}</Text>}
+                <TextInput
+                  style={styles.input}
+                  value={arBedName}
+                  onChangeText={setArBedName}
+                  placeholder="Bed name"
+                  placeholderTextColor="#64748B"
+                />
+                <View style={styles.rowBetween}>
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    value={arWidthCm}
+                    onChangeText={setArWidthCm}
+                    keyboardType="numeric"
+                    placeholder="Width cm"
+                    placeholderTextColor="#64748B"
+                  />
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    value={arLengthCm}
+                    onChangeText={setArLengthCm}
+                    keyboardType="numeric"
+                    placeholder="Length cm"
+                    placeholderTextColor="#64748B"
+                  />
+                </View>
+                <Pressable style={styles.primaryBtn} onPress={() => void handleSaveArBed()}>
+                  <Text style={styles.primaryBtnText}>Save Measured Bed</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
 
-        {harvests.slice(0, 5).map((h) => {
-          const sp = PLANT_SPECIES_BY_ID[h.speciesId];
-          const z = zones.find((zone) => zone.id === h.zoneId);
-          return (
-            <Text key={h.id} style={styles.cardText}>
-              • {h.harvestedAtIso}: {sp?.commonName ?? h.speciesId} — {h.quantityLabel}
-              {z ? ` (${z.name})` : ''}
-            </Text>
-          );
-        })}
-      </View>
-
-      <Text style={styles.sectionTitle}>Pro Garden & Cloud Backup</Text>
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>
-          Tier: {profile.isPro ? 'Pro Garden Unlocked ✓' : 'Free Core (Local-First)'}
-        </Text>
-        <Text style={styles.cardMeta}>
-          Pending local sync queue: {pendingSyncCount} item(s)
-        </Text>
-        {!profile.isPro && (
-          <Pressable style={styles.primaryBtn} onPress={() => void onUnlockPro()}>
-            <Text style={styles.primaryBtnText}>Unlock Pro Garden · {PRO_GARDEN_PRICE_NZD}</Text>
-          </Pressable>
-        )}
-        <Pressable style={styles.outlineBtn} onPress={() => void handleCloudSync()}>
-          <Text style={styles.outlineBtnText}>Sync Local Garden to Cloud</Text>
-        </Pressable>
-        {syncMessage && <Text style={styles.cardText}>{syncMessage}</Text>}
-      </View>
+          {activeJournalTab === 'sync' && (
+            <>
+              <Text style={styles.sectionTitle}>Pro Garden & Cloud Backup</Text>
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  Tier: {profile.isPro ? 'Pro Garden Unlocked ✓' : 'Free Core (Local-First)'}
+                </Text>
+                <Text style={styles.cardMeta}>
+                  Pending local sync queue: {pendingSyncCount} item(s)
+                </Text>
+                {!profile.isPro && (
+                  <Pressable style={styles.primaryBtn} onPress={() => void onUnlockPro()}>
+                    <Text style={styles.primaryBtnText}>
+                      Unlock Pro Garden · {PRO_GARDEN_PRICE_NZD}
+                    </Text>
+                  </Pressable>
+                )}
+                <Pressable style={styles.outlineBtn} onPress={() => void handleCloudSync()}>
+                  <Text style={styles.outlineBtnText}>Sync Local Garden to Cloud</Text>
+                </Pressable>
+                {syncMessage && <Text style={styles.cardText}>{syncMessage}</Text>}
+              </View>
+            </>
+          )}
         </>
       )}
     </View>
@@ -378,7 +556,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: '#E2E8F0',
-    gap: 8
+    gap: 10
   },
   subCard: {
     backgroundColor: '#F8FAFC',
@@ -390,7 +568,93 @@ const styles = StyleSheet.create({
   },
   nppaBox: { backgroundColor: '#FEF2F2', borderColor: '#DC2626' },
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  quotaBadgePill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 999
+  },
   badge: { fontSize: 11, fontWeight: '700', color: '#15803D' },
+  quotaSection: { gap: 5 },
+  quotaLabel: { fontSize: 12, fontWeight: '600', color: '#334155' },
+  quotaBonusText: { fontSize: 11, fontWeight: '700', color: '#0369A1' },
+  progressTrack: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#E2E8F0',
+    overflow: 'hidden'
+  },
+  progressFill: {
+    height: '100%',
+    borderRadius: 999
+  },
+  subLabel: { fontSize: 12, fontWeight: '700', color: '#475569' },
+  wrapChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  quickChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    backgroundColor: '#F1F5F9',
+    borderWidth: 1,
+    borderColor: '#CBD5E1'
+  },
+  segmentedBar: {
+    flexDirection: 'row',
+    backgroundColor: '#E2E8F0',
+    borderRadius: 999,
+    padding: 4,
+    gap: 4
+  },
+  segmentedPill: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 6,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  segmentedPillActive: {
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#0F172A',
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 1 },
+    elevation: 2
+  },
+  segmentedPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#475569'
+  },
+  segmentedPillTextActive: {
+    color: '#166534'
+  },
+  totalPill: {
+    backgroundColor: '#DCFCE7',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999
+  },
+  totalPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#166534'
+  },
+  harvestList: { gap: 8 },
+  emptyState: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: '#CBD5E1',
+    paddingVertical: 18,
+    paddingHorizontal: 14,
+    alignItems: 'center',
+    gap: 4
+  },
+  emptyStateIcon: { fontSize: 24 },
+  emptyStateTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A' },
+  emptyStateText: { fontSize: 12, color: '#64748B', textAlign: 'center', lineHeight: 17 },
   cardTitle: { fontSize: 15, fontWeight: '700', color: '#0F172A' },
   cardMeta: { fontSize: 12, color: '#64748B' },
   cardText: { fontSize: 13, color: '#334155', lineHeight: 18 },
