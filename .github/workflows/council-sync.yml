@@ -1,0 +1,23 @@
+name: Weekly NZ Council Water Rules Sync
+
+on:
+  schedule:
+    - cron: '0 18 * * 0'
+  workflow_dispatch:
+
+jobs:
+  check-council-feeds:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Supabase Council Rules Sync
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+        run: |
+          if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_ANON_KEY" ]; then
+            echo "SUPABASE_URL or SUPABASE_ANON_KEY not set; skipping remote sync."
+            exit 0
+          fi
+          curl -sf -X POST "${SUPABASE_URL%/}/functions/v1/sync-council-rules" \
+            -H "Authorization: Bearer ${SUPABASE_ANON_KEY}" \
+            -H "Content-Type: application/json"

@@ -2,10 +2,34 @@
   "expo": {
     "name": "Aotearoa Garden Planner",
     "slug": "aotearoa-garden-planner",
+    "scheme": "aotearoa-garden",
     "version": "0.1.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "platforms": ["ios", "android"],
-    "plugins": ["expo-sqlite", "expo-notifications"]
+    "ios": {
+      "bundleIdentifier": "nz.aotearoa.gardenplanner",
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Used to scan plants, pests, NPPA weeds, and measure garden beds with AR.",
+        "NSPhotoLibraryUsageDescription": "Used to upload garden photos for AI plant and pest diagnostics.",
+        "NSLocationWhenInUseUsageDescription": "Optional: auto-detect your NZ postcode and council water rules."
+      }
+    },
+    "android": {
+      "package": "nz.aotearoa.gardenplanner",
+      "permissions": ["CAMERA", "READ_MEDIA_IMAGES"]
+    },
+    "plugins": [
+      "expo-sqlite",
+      "expo-notifications",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Aotearoa Garden Planner to access your photos for AI diagnostics.",
+          "cameraPermission": "Allow Aotearoa Garden Planner to use your camera to scan plants and pests."
+        }
+      ]
+    ]
   }
 }

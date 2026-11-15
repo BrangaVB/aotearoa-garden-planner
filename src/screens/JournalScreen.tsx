@@ -7,6 +7,7 @@ import {
   TextInput,
   View
 } from 'react-native';
+import { getAppEnvConfig } from '../config/env';
 import {
   NZ_PLANT_CATALOG,
   PLANT_SPECIES_BY_ID
@@ -15,16 +16,25 @@ import {
   createGardenZone,
   saveHarvestLog
 } from '../db/database';
-import { computeArBedDimensions } from '../engine/arMeasurementEngine';
 import {
   getAiQuotaStatus,
   runAiDiagnosticScan
 } from '../services/aiDiagnosticsService';
+import { measureBedWithAr } from '../services/arBridgeService';
+import {
+  captureGardenPhoto,
+  CapturedPhoto,
+  pickGardenPhoto
+} from '../services/cameraService';
 import {
   AI_PACK_PRICE_NZD,
-  PRO_GARDEN_PRICE_NZD
+  PRO_GARDEN_PRICE_NZD,
+  restoreProPurchases
 } from '../services/monetizationService';
-import { syncPendingChangesToCloud } from '../services/syncService';
+import {
+  requestEmailMagicLink,
+  syncPendingChangesToCloud
+} from '../services/syncService';
 import {
   DiagnosisEvent,
   GardenProfile,
@@ -102,6 +112,8 @@ export function JournalScreen({
 
   // Sync status
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
+  const [cloudEmail, setCloudEmail] = useState('');
+  const [attachedPhoto, setAttachedPhoto] = useState<CapturedPhoto | null>(null);
 
   const quota = useMemo(() => getAiQuotaStatus(profile), [profile]);
   const quotaPercent = Math.min(
@@ -124,11 +136,23 @@ export function JournalScreen({
     []
   );
 
+  const handleCapturePhoto = async (mode: 'camera' | 'gallery') => {
+    setDiagError(null);
+    const res = mode === 'camera' ? await captureGardenPhoto() : await pickGardenPhoto();
+    if (res.error) {
+      setDiagError(res.error);
+      return;
+    }
+    if (res.photo) {
+      setAttachedPhoto(res.photo);
+    }
+  };
+
   const handleRunDiagnosis = async (overrideNotes?: string) => {
     setDiagError(null);
     const trimmed = (overrideNotes ?? diagNotes).trim();
-    if (!trimmed) {
-      setDiagError('Describe the leaf symptoms, insect, or mystery weed first.');
+    if (!trimmed && !attachedPhoto) {
+      setDiagError('Describe the leaf symptoms or attach a photo first.');
       return;
     }
     if (overrideNotes !== undefined) {
@@ -136,13 +160,18 @@ export function JournalScreen({
     }
     setDiagBusy(true);
     try {
+      const env = getAppEnvConfig();
       const { updatedProfile } = await runAiDiagnosticScan({
         profile,
         zoneId: zones[0]?.id,
-        queryNotes: trimmed
+        queryNotes: trimmed || 'Photo scan',
+        imageBase64: attachedPhoto?.base64,
+        supabaseEdgeUrl: env.supabaseUrl || undefined,
+        supabaseAnonKey: env.supabaseAnonKey || undefined
       });
       onProfileUpdated(updatedProfile);
       setDiagNotes('');
+      setAttachedPhoto(null);
       await onWorkspaceChanged();
     } catch (err) {
       setDiagError(
@@ -172,20 +201,12 @@ export function JournalScreen({
     await onWorkspaceChanged();
   };
 
-  const handleSimulateArCapture = () => {
-    const measured = computeArBedDimensions({
-      corners: [
-        { x: 0, z: 0 },
-        { x: 2.38, z: 0.02 },
-        { x: 2.41, z: 1.18 },
-        { x: 0.01, z: 1.21 }
-      ],
-      hasLidar: true
-    });
-    setArWidthCm(String(measured.widthCm));
-    setArLengthCm(String(measured.lengthCm));
+  const handleSimulateArCapture = async () => {
+    const { measurement, source } = await measureBedWithAr();
+    setArWidthCm(String(measurement.widthCm));
+    setArLengthCm(String(measurement.lengthCm));
     setArStatus(
-      `Captured ${measured.widthCm}×${measured.lengthCm}cm (${measured.areaSqm}m²) · ${measured.confidenceLabel}. Adjust below if needed.`
+      `Captured ${measurement.widthCm}×${measurement.lengthCm}cm (${measurement.areaSqm}m²) · ${measurement.confidenceLabel} (${source === 'native-ar' ? 'ARKit/ARCore' : 'Calibrated fallback'}). Adjust below if needed.`
     );
   };
 
@@ -293,6 +314,34 @@ export function JournalScreen({
                 );
               })}
             </View>
+
+            <View style={styles.rowBetween}>
+              <Pressable
+                style={[styles.outlineBtn, { flex: 1 }]}
+                onPress={() => void handleCapturePhoto('camera')}
+                disabled={diagBusy}
+              >
+                <Text style={styles.outlineBtnText}>📷 Take Photo</Text>
+              </Pressable>
+              <Pressable
+                style={[styles.outlineBtn, { flex: 1 }]}
+                onPress={() => void handleCapturePhoto('gallery')}
+                disabled={diagBusy}
+              >
+                <Text style={styles.outlineBtnText}>🖼️ Choose Photo</Text>
+              </Pressable>
+            </View>
+
+            {attachedPhoto && (
+              <View style={styles.rowBetween}>
+                <Text style={styles.badge}>
+                  📷 Photo attached ({attachedPhoto.width}×{attachedPhoto.height})
+                </Text>
+                <Pressable onPress={() => setAttachedPhoto(null)}>
+                  <Text style={styles.cardMeta}>Clear</Text>
+                </Pressable>
+              </View>
+            )}
 
             <TextInput
               style={styles.input}
@@ -528,12 +577,58 @@ export function JournalScreen({
                   Pending local sync queue: {pendingSyncCount} item(s)
                 </Text>
                 {!profile.isPro && (
-                  <Pressable style={styles.primaryBtn} onPress={() => void onUnlockPro()}>
-                    <Text style={styles.primaryBtnText}>
-                      Unlock Pro Garden · {PRO_GARDEN_PRICE_NZD}
-                    </Text>
-                  </Pressable>
+                  <View style={styles.rowBetween}>
+                    <Pressable
+                      style={[styles.primaryBtn, { flex: 1 }]}
+                      onPress={() => void onUnlockPro()}
+                    >
+                      <Text style={styles.primaryBtnText}>
+                        Unlock Pro · {PRO_GARDEN_PRICE_NZD}
+                      </Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.outlineBtn}
+                      onPress={async () => {
+                        const res = await restoreProPurchases(profile);
+                        onProfileUpdated(res.updatedProfile);
+                        setSyncMessage(
+                          res.restored
+                            ? 'Pro Garden purchase restored ✓'
+                            : 'No previous Pro Garden purchase found for this account.'
+                        );
+                      }}
+                    >
+                      <Text style={styles.outlineBtnText}>Restore</Text>
+                    </Pressable>
+                  </View>
                 )}
+
+                <Text style={styles.subLabel}>Optional Cloud Account (Supabase)</Text>
+                <View style={styles.rowBetween}>
+                  <TextInput
+                    style={[styles.input, { flex: 1 }]}
+                    value={cloudEmail}
+                    onChangeText={setCloudEmail}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    placeholder="Email for magic-link backup..."
+                    placeholderTextColor="#64748B"
+                  />
+                  <Pressable
+                    style={styles.outlineBtn}
+                    onPress={async () => {
+                      if (!cloudEmail.trim()) {
+                        setSyncMessage('Enter an email address first.');
+                        return;
+                      }
+                      const res = await requestEmailMagicLink(cloudEmail);
+                      setSyncMessage(res.message);
+                    }}
+                  >
+                    <Text style={styles.outlineBtnText}>Send Link</Text>
+                  </Pressable>
+                </View>
+
                 <Pressable style={styles.outlineBtn} onPress={() => void handleCloudSync()}>
                   <Text style={styles.outlineBtnText}>Sync Local Garden to Cloud</Text>
                 </Pressable>

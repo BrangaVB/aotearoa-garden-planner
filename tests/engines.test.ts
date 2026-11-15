@@ -25,11 +25,17 @@ import {
 } from '../src/engine/sunPathEngine';
 import { computeZoneWateringRecommendation } from '../src/engine/wateringEngine';
 import {
+  isRevenueCatConfigured,
+  isSupabaseConfigured
+} from '../src/config/env';
+import {
   consumeAiQuota,
   getAiQuotaStatus,
   runOfflineNzDiagnosticMatcher
 } from '../src/engine/aiDiagnosticsEngine';
 import { GardenObstacle, GardenProfile, GardenZone, Planting } from '../src/types/domain';
+import { parseVisionJsonResponse } from '../supabase/functions/ai-diagnose/index';
+import { parseRestrictionLevelFromHtml } from '../supabase/functions/sync-council-rules/index';
 
 const sampleProfile: GardenProfile = {
   id: 'prof_1',
@@ -388,5 +394,35 @@ describe('Aotearoa Garden Planner Core Engines', () => {
     });
     expect(nppaDiag.isNppaWeed).toBe(true);
     expect(nppaDiag.nppaGuidance).toContain('NPPA');
+  });
+
+  it('validates env configuration, vision JSON parsing, and council HTML restriction parsing', () => {
+    expect(
+      isSupabaseConfigured({
+        supabaseUrl: 'https://demo.supabase.co',
+        supabaseAnonKey: 'anon-key',
+        revenueCatIosKey: '',
+        revenueCatAndroidKey: ''
+      })
+    ).toBe(true);
+    expect(
+      isRevenueCatConfigured('ios', {
+        supabaseUrl: '',
+        supabaseAnonKey: '',
+        revenueCatIosKey: 'appl_123',
+        revenueCatAndroidKey: ''
+      })
+    ).toBe(true);
+
+    const parsedVision = parseVisionJsonResponse(
+      '```json\n{"topDiagnosis":"Moth Plant (Araujia hortorum)","confidence":0.92,"isNppaWeed":true,"treatmentSteps":["Bag pods"]}\n```',
+      '1010',
+      'nz-auckland'
+    );
+    expect(parsedVision?.isNppaWeed).toBe(true);
+    expect(parsedVision?.nppaGuidance).toContain('landfill');
+
+    expect(parseRestrictionLevelFromHtml('Wellington Water is currently at Level 2 (Sprinkler Ban)')).toBe(2);
+    expect(parseRestrictionLevelFromHtml('Auckland: No water restrictions currently in place')).toBe(0);
   });
 });
