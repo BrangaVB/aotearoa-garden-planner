@@ -13,10 +13,23 @@ import {
   PLANT_SPECIES_BY_ID,
   searchPlantCatalog
 } from '../src/data/nzPlantCatalog';
+import { computeArBedDimensions } from '../src/engine/arMeasurementEngine';
 import { validatePlantingPlacement } from '../src/engine/bedPlannerEngine';
 import { generateProactiveCareTasks } from '../src/engine/careCalendarEngine';
+import { checkCropRotation } from '../src/engine/rotationEngine';
+import {
+  computeShadowProjection,
+  computeSolarPosition,
+  estimateZoneDailySun,
+  SEASON_DAY_OF_YEAR
+} from '../src/engine/sunPathEngine';
 import { computeZoneWateringRecommendation } from '../src/engine/wateringEngine';
-import { GardenProfile, GardenZone, Planting } from '../src/types/domain';
+import {
+  consumeAiQuota,
+  getAiQuotaStatus,
+  runOfflineNzDiagnosticMatcher
+} from '../src/engine/aiDiagnosticsEngine';
+import { GardenObstacle, GardenProfile, GardenZone, Planting } from '../src/types/domain';
 
 const sampleProfile: GardenProfile = {
   id: 'prof_1',
@@ -272,5 +285,108 @@ describe('Aotearoa Garden Planner Core Engines', () => {
     ]) {
       expect(pestIds.has(requiredId)).toBe(true);
     }
+  });
+
+  it('computes Southern Hemisphere solar positions, South-facing noon shadows, and daily sun exposure', () => {
+    const summerNoon = computeSolarPosition({
+      latitude: -41.29,
+      dayOfYear: SEASON_DAY_OF_YEAR['Summer Solstice (Dec)'],
+      hourOfDay: 12
+    });
+    const winterNoon = computeSolarPosition({
+      latitude: -41.29,
+      dayOfYear: SEASON_DAY_OF_YEAR['Winter Solstice (Jun)'],
+      hourOfDay: 12
+    });
+
+    expect(summerNoon.isDaylight).toBe(true);
+    expect(winterNoon.isDaylight).toBe(true);
+    expect(summerNoon.altitudeDeg).toBeGreaterThan(winterNoon.altitudeDeg);
+    expect(summerNoon.azimuthDeg).toBe(0); // Due North at solar noon in NZ
+
+    const winterShadow = computeShadowProjection(200, winterNoon);
+    expect(winterShadow.dyCm).toBeGreaterThan(300); // Long shadow cast South (+y)
+
+    const northFence: GardenObstacle = {
+      id: 'obs_1',
+      profileId: 'prof_1',
+      name: 'North Fence',
+      obstacleType: 'Fence',
+      xCm: 0,
+      yCm: 0,
+      widthCm: 30,
+      lengthCm: 400,
+      heightCm: 220
+    };
+    const shadedBed: GardenZone = {
+      ...sampleZone,
+      canvasGeometry: { xCm: 50, yCm: 60 }
+    };
+    const sunSummary = estimateZoneDailySun({
+      zone: shadedBed,
+      obstacles: [northFence],
+      latitude: -41.29,
+      dayOfYear: SEASON_DAY_OF_YEAR['Winter Solstice (Jun)']
+    });
+    expect(sunSummary.sunlitHours).toBeLessThan(6);
+  });
+
+  it('flags multi-season crop rotation conflicts and passes healthy family rotations', () => {
+    const currentYear = new Date().getFullYear();
+    const history = [
+      {
+        zoneId: 'zone_1',
+        speciesId: 'tomato-beefsteak',
+        rotationFamily: 'Solanaceae',
+        seasonYear: currentYear - 1,
+        plantedDateIso: `${currentYear - 1}-11-01`
+      }
+    ];
+
+    const potatoRotation = checkCropRotation({
+      candidateSpecies: PLANT_SPECIES_BY_ID['potato-maincrop']!,
+      history,
+      currentYear
+    });
+    expect(potatoRotation.hasWarning).toBe(true);
+    expect(potatoRotation.warnings[0]).toContain('Solanaceae');
+
+    const beanRotation = checkCropRotation({
+      candidateSpecies: PLANT_SPECIES_BY_ID['dwarf-beans']!,
+      history,
+      currentYear
+    });
+    expect(beanRotation.hasWarning).toBe(false);
+  });
+
+  it('measures AR corner anchors into 5cm-snapped bed dimensions', () => {
+    const measured = computeArBedDimensions({
+      corners: [
+        { x: 0, z: 0 },
+        { x: 2.38, z: 0 },
+        { x: 2.38, z: 1.19 },
+        { x: 0, z: 1.19 }
+      ],
+      hasLidar: true
+    });
+    expect(measured.widthCm).toBe(120);
+    expect(measured.lengthCm).toBe(240);
+    expect(measured.confidenceLabel).toContain('LiDAR');
+  });
+
+  it('enforces AI diagnostic monthly quotas and detects NPPA weeds offline', () => {
+    const freeQuota = getAiQuotaStatus(sampleProfile, new Date('2026-11-16T00:00:00Z'));
+    expect(freeQuota.monthlyLimit).toBe(3);
+    expect(freeQuota.canScan).toBe(true);
+
+    const afterOne = consumeAiQuota(sampleProfile, new Date('2026-11-16T00:00:00Z'));
+    expect(getAiQuotaStatus(afterOne, new Date('2026-11-16T00:00:00Z')).remainingTotal).toBe(2);
+
+    const nppaDiag = runOfflineNzDiagnosticMatcher({
+      profile: sampleProfile,
+      queryNotes: 'Wandering willie tradescantia spreading under trees'
+    });
+    expect(nppaDiag.isNppaWeed).toBe(true);
+    expect(nppaDiag.nppaGuidance).toContain('NPPA');
   });
 });

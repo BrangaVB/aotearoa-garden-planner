@@ -30,6 +30,7 @@ import {
   GardenZone,
   Planting,
   PlantSpecies,
+  RotationHistoryEntry,
   SoilType,
   SunAspect,
   ZoneType
@@ -39,6 +40,7 @@ interface Props {
   profile: GardenProfile;
   zones: GardenZone[];
   plantingsByZone: Record<string, Planting[]>;
+  rotationHistoryByZone?: Record<string, RotationHistoryEntry[]>;
   onWorkspaceChanged: () => Promise<void>;
 }
 
@@ -56,6 +58,7 @@ export function BedBuilderScreen({
   profile,
   zones,
   plantingsByZone,
+  rotationHistoryByZone = {},
   onWorkspaceChanged
 }: Props) {
   const [selectedZoneId, setSelectedZoneId] = useState<string>(zones[0]?.id ?? '');
@@ -165,7 +168,8 @@ export function BedBuilderScreen({
       targetRow: row,
       targetCol: col,
       existingPlantings: activePlantings,
-      cellSizeCm: 25
+      cellSizeCm: 25,
+      rotationHistory: rotationHistoryByZone[activeZone.id] ?? []
     });
     setPendingCell({ row, col });
     setValidation(result);
@@ -431,6 +435,11 @@ export function BedBuilderScreen({
                   {validation.antagonistWarnings.map((msg) => (
                     <Text key={msg} style={styles.warningText}>
                       ⚠️ {msg}
+                    </Text>
+                  ))}
+                  {validation.rotationWarnings.map((msg) => (
+                    <Text key={msg} style={styles.warningText}>
+                      🔄 {msg}
                     </Text>
                   ))}
                   <View style={styles.actionRow}>

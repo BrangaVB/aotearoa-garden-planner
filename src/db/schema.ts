@@ -18,7 +18,12 @@ CREATE TABLE IF NOT EXISTS garden_profiles (
   is_pro INTEGER NOT NULL DEFAULT 0,
   created_at_iso TEXT NOT NULL,
   restriction_stage_override INTEGER,
-  notifications_enabled INTEGER NOT NULL DEFAULT 1
+  notifications_enabled INTEGER NOT NULL DEFAULT 1,
+  ai_scans_used_this_month INTEGER NOT NULL DEFAULT 0,
+  ai_scans_month_key TEXT,
+  ai_bonus_credits INTEGER NOT NULL DEFAULT 0,
+  cloud_user_id TEXT,
+  last_synced_at_iso TEXT
 );
 
 CREATE TABLE IF NOT EXISTS garden_zones (
@@ -32,6 +37,20 @@ CREATE TABLE IF NOT EXISTS garden_zones (
   soil_type TEXT NOT NULL,
   drainage TEXT NOT NULL,
   rainwater_tank_connected INTEGER NOT NULL DEFAULT 0,
+  canvas_geometry_json TEXT,
+  FOREIGN KEY (profile_id) REFERENCES garden_profiles(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS garden_obstacles (
+  id TEXT PRIMARY KEY NOT NULL,
+  profile_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  obstacle_type TEXT NOT NULL,
+  x_cm REAL NOT NULL,
+  y_cm REAL NOT NULL,
+  width_cm REAL NOT NULL,
+  length_cm REAL NOT NULL,
+  height_cm REAL NOT NULL,
   FOREIGN KEY (profile_id) REFERENCES garden_profiles(id) ON DELETE CASCADE
 );
 
@@ -46,6 +65,15 @@ CREATE TABLE IF NOT EXISTS plantings (
   moisture_deficit_mm REAL NOT NULL DEFAULT 0,
   last_watered_iso TEXT,
   FOREIGN KEY (zone_id) REFERENCES garden_zones(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS planting_history (
+  id TEXT PRIMARY KEY NOT NULL,
+  zone_id TEXT NOT NULL,
+  species_id TEXT NOT NULL,
+  rotation_family TEXT NOT NULL,
+  season_year INTEGER NOT NULL,
+  planted_date_iso TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS watering_logs (
@@ -67,5 +95,40 @@ CREATE TABLE IF NOT EXISTS care_tasks (
   priority TEXT NOT NULL,
   description TEXT NOT NULL,
   completed INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS diagnosis_events (
+  id TEXT PRIMARY KEY NOT NULL,
+  profile_id TEXT NOT NULL,
+  zone_id TEXT,
+  created_at_iso TEXT NOT NULL,
+  query_notes TEXT NOT NULL,
+  top_diagnosis TEXT NOT NULL,
+  confidence REAL NOT NULL,
+  is_nppa_weed INTEGER NOT NULL DEFAULT 0,
+  nppa_guidance TEXT,
+  treatment_steps_json TEXT NOT NULL,
+  source TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS harvest_logs (
+  id TEXT PRIMARY KEY NOT NULL,
+  profile_id TEXT NOT NULL,
+  zone_id TEXT NOT NULL,
+  species_id TEXT NOT NULL,
+  harvested_at_iso TEXT NOT NULL,
+  quantity_label TEXT NOT NULL,
+  weight_grams REAL,
+  notes TEXT
+);
+
+CREATE TABLE IF NOT EXISTS sync_queue (
+  id TEXT PRIMARY KEY NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  operation TEXT NOT NULL,
+  payload_json TEXT NOT NULL,
+  created_at_iso TEXT NOT NULL,
+  synced_at_iso TEXT
 );
 `;

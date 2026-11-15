@@ -73,6 +73,18 @@ export interface GardenProfile {
   /** User-reported restriction stage that overrides the bundled registry until cleared. */
   restrictionStageOverride?: RestrictionStage;
   notificationsEnabled?: boolean;
+  /** Phase 2/3: AI diagnostics usage & bonus credit packs + optional cloud sync metadata. */
+  aiScansUsedThisMonth?: number;
+  aiScansMonthKey?: string; // YYYY-MM
+  aiBonusCredits?: number;
+  cloudUserId?: string;
+  lastSyncedAtIso?: string;
+}
+
+export interface CanvasGeometry {
+  xCm: number;
+  yCm: number;
+  rotationDeg?: number;
 }
 
 export interface GardenZone {
@@ -86,6 +98,21 @@ export interface GardenZone {
   soilType: SoilType;
   drainage: 'Poor' | 'Moderate' | 'Fast';
   rainwaterTankConnected: boolean;
+  canvasGeometry?: CanvasGeometry;
+}
+
+export type ObstacleType = 'Fence' | 'Tree' | 'House Wall' | 'Shed';
+
+export interface GardenObstacle {
+  id: string;
+  profileId: string;
+  name: string;
+  obstacleType: ObstacleType;
+  xCm: number;
+  yCm: number;
+  widthCm: number;
+  lengthCm: number;
+  heightCm: number;
 }
 
 export interface PlantSpecies {
@@ -173,4 +200,47 @@ export interface PestGuideEntry {
   organicRemedy: string;
   standardRemedy: string;
   preventionTip: string;
+}
+
+export interface DiagnosisEvent {
+  id: string;
+  profileId: string;
+  zoneId?: string;
+  createdAtIso: string;
+  queryNotes: string;
+  topDiagnosis: string;
+  confidence: number;
+  isNppaWeed: boolean;
+  nppaGuidance?: string;
+  treatmentSteps: string[];
+  source: 'cloud-vision' | 'offline-matcher';
+}
+
+export interface HarvestLog {
+  id: string;
+  profileId: string;
+  zoneId: string;
+  speciesId: string;
+  harvestedAtIso: string;
+  quantityLabel: string;
+  weightGrams?: number;
+  notes?: string;
+}
+
+export interface RotationHistoryEntry {
+  zoneId: string;
+  speciesId: string;
+  rotationFamily: string;
+  seasonYear: number;
+  plantedDateIso: string;
+}
+
+export interface SyncQueueItem {
+  id: string;
+  entityType: 'profile' | 'zone' | 'planting' | 'harvest' | 'diagnosis' | 'obstacle';
+  entityId: string;
+  operation: 'UPSERT' | 'DELETE';
+  payloadJson: string;
+  createdAtIso: string;
+  syncedAtIso?: string;
 }

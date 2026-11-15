@@ -1,5 +1,6 @@
 import { PLANT_SPECIES_BY_ID } from '../data/nzPlantCatalog';
-import { GardenZone, Planting, PlantSpecies } from '../types/domain';
+import { GardenZone, Planting, PlantSpecies, RotationHistoryEntry } from '../types/domain';
+import { checkCropRotation } from './rotationEngine';
 
 export interface PlacementValidationResult {
   allowed: boolean;
@@ -7,6 +8,7 @@ export interface PlacementValidationResult {
   spacingWarnings: string[];
   companionHighlights: string[];
   antagonistWarnings: string[];
+  rotationWarnings: string[];
 }
 
 export function getZoneGridDimensions(zone: GardenZone, cellSizeCm = 25): {
@@ -28,13 +30,15 @@ export function validatePlantingPlacement(params: {
   targetCol: number;
   existingPlantings: Planting[];
   cellSizeCm?: number;
+  rotationHistory?: RotationHistoryEntry[];
 }): PlacementValidationResult {
   const {
     candidateSpecies,
     targetRow,
     targetCol,
     existingPlantings,
-    cellSizeCm = 25
+    cellSizeCm = 25,
+    rotationHistory = []
   } = params;
 
   // 1. Biosecurity gate: block NPPA pest plants from garden plans
@@ -46,13 +50,18 @@ export function validatePlantingPlacement(params: {
         `${candidateSpecies.commonName} is listed under the NZ National Pest Plant Accord (NPPA) and cannot be planted.`,
       spacingWarnings: [],
       companionHighlights: [],
-      antagonistWarnings: []
+      antagonistWarnings: [],
+      rotationWarnings: []
     };
   }
 
   const spacingWarnings: string[] = [];
   const companionHighlights: string[] = [];
   const antagonistWarnings: string[] = [];
+  const rotationCheck = checkCropRotation({
+    candidateSpecies,
+    history: rotationHistory
+  });
 
   for (const existing of existingPlantings) {
     if (existing.gridRow === targetRow && existing.gridCol === targetCol) {
@@ -97,6 +106,7 @@ export function validatePlantingPlacement(params: {
     allowed: true,
     spacingWarnings: Array.from(new Set(spacingWarnings)),
     companionHighlights: Array.from(new Set(companionHighlights)),
-    antagonistWarnings: Array.from(new Set(antagonistWarnings))
+    antagonistWarnings: Array.from(new Set(antagonistWarnings)),
+    rotationWarnings: rotationCheck.warnings
   };
 }

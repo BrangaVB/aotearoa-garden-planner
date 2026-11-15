@@ -20,7 +20,12 @@ import { searchPlantCatalog } from './src/data/nzPlantCatalog';
 import {
   createGardenZone,
   getActiveProfile,
+  listDiagnosisEvents,
+  listHarvestLogs,
+  listObstaclesForProfile,
+  listPendingSyncItems,
   listPlantingsForZone,
+  listRotationHistoryForZone,
   listZonesForProfile,
   recordZoneWatering,
   saveGardenProfile,
@@ -29,7 +34,13 @@ import {
 import { generateProactiveCareTasks } from './src/engine/careCalendarEngine';
 import { computeZoneWateringRecommendation } from './src/engine/wateringEngine';
 import { BedBuilderScreen } from './src/screens/BedBuilderScreen';
+import { CanvasScreen } from './src/screens/CanvasScreen';
+import { JournalScreen } from './src/screens/JournalScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
+import {
+  purchaseAiCreditPack,
+  unlockProGarden
+} from './src/services/monetizationService';
 import { syncGardenNotifications } from './src/services/notificationService';
 import {
   fetchNzWeatherWithMeta,
@@ -38,15 +49,19 @@ import {
 import {
   CareTask,
   DailyWeatherPoint,
+  DiagnosisEvent,
+  GardenObstacle,
   GardenProfile,
   GardenZone,
+  HarvestLog,
   PlantCategory,
   Planting,
   RestrictionStage,
+  RotationHistoryEntry,
   WateringRecommendation
 } from './src/types/domain';
 
-type Tab = 'Today' | 'Beds' | 'Catalog' | 'Pests';
+type Tab = 'Today' | 'Beds' | 'Canvas' | 'Journal' | 'Catalog' | 'Pests';
 
 const CATALOG_CATEGORIES: ('All' | PlantCategory)[] = [
   'All',
@@ -63,6 +78,11 @@ export default function App() {
   const [profile, setProfile] = useState<GardenProfile | null>(null);
   const [zones, setZones] = useState<GardenZone[]>([]);
   const [plantingsByZone, setPlantingsByZone] = useState<Record<string, Planting[]>>({});
+  const [rotationHistoryByZone, setRotationHistoryByZone] = useState<Record<string, RotationHistoryEntry[]>>({});
+  const [obstacles, setObstacles] = useState<GardenObstacle[]>([]);
+  const [diagnoses, setDiagnoses] = useState<DiagnosisEvent[]>([]);
+  const [harvests, setHarvests] = useState<HarvestLog[]>([]);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
   const [forecast, setForecast] = useState<DailyWeatherPoint[]>([]);
   const [weatherSource, setWeatherSource] = useState<WeatherDataSource>('fallback');
   const [tab, setTab] = useState<Tab>('Today');
@@ -114,12 +134,26 @@ export default function App() {
     }
 
     const map: Record<string, Planting[]> = {};
+    const rotMap: Record<string, RotationHistoryEntry[]> = {};
     for (const z of userZones) {
       map[z.id] = await listPlantingsForZone(z.id);
+      rotMap[z.id] = await listRotationHistoryForZone(z.id);
     }
-    const weatherResult = await fetchNzWeatherWithMeta(active.latitude, active.longitude);
+    const [obsList, diagList, harvestList, pendingSync, weatherResult] = await Promise.all([
+      listObstaclesForProfile(active.id),
+      listDiagnosisEvents(active.id),
+      listHarvestLogs(active.id),
+      listPendingSyncItems(),
+      fetchNzWeatherWithMeta(active.latitude, active.longitude)
+    ]);
+
     setZones(userZones);
     setPlantingsByZone(map);
+    setRotationHistoryByZone(rotMap);
+    setObstacles(obsList);
+    setDiagnoses(diagList);
+    setHarvests(harvestList);
+    setPendingSyncCount(pendingSync.length);
     setForecast(weatherResult.forecast);
     setWeatherSource(weatherResult.source);
 
@@ -407,7 +441,44 @@ export default function App() {
             profile={profile}
             zones={zones}
             plantingsByZone={plantingsByZone}
+            rotationHistoryByZone={rotationHistoryByZone}
             onWorkspaceChanged={() => loadWorkspace(profile)}
+          />
+        )}
+
+        {tab === 'Canvas' && (
+          <CanvasScreen
+            profile={profile}
+            zones={zones}
+            obstacles={obstacles}
+            onWorkspaceChanged={() => loadWorkspace(profile)}
+            onUnlockPro={async () => {
+              const updated = await unlockProGarden(profile);
+              setProfile(updated);
+              await loadWorkspace(updated);
+            }}
+          />
+        )}
+
+        {tab === 'Journal' && (
+          <JournalScreen
+            profile={profile}
+            zones={zones}
+            diagnoses={diagnoses}
+            harvests={harvests}
+            pendingSyncCount={pendingSyncCount}
+            onProfileUpdated={setProfile}
+            onWorkspaceChanged={() => loadWorkspace(profile)}
+            onUnlockPro={async () => {
+              const updated = await unlockProGarden(profile);
+              setProfile(updated);
+              await loadWorkspace(updated);
+            }}
+            onBuyAiCredits={async () => {
+              const updated = await purchaseAiCreditPack(profile);
+              setProfile(updated);
+              await loadWorkspace(updated);
+            }}
           />
         )}
 
@@ -491,13 +562,15 @@ export default function App() {
       </ScrollView>
 
       <View style={styles.navBar}>
-        {(['Today', 'Beds', 'Catalog', 'Pests'] as Tab[]).map((t) => (
+        {(['Today', 'Beds', 'Canvas', 'Journal', 'Catalog', 'Pests'] as Tab[]).map((t) => (
           <Pressable
             key={t}
             onPress={() => setTab(t)}
             style={[styles.navItem, tab === t && styles.navItemActive]}
           >
-            <Text style={[styles.navText, tab === t && styles.navTextActive]}>{t}</Text>
+            <Text style={[styles.navText, tab === t && styles.navTextActive]} numberOfLines={1}>
+              {t}
+            </Text>
           </Pressable>
         ))}
       </View>
