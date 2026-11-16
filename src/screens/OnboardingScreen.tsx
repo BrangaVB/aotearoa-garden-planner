@@ -112,13 +112,20 @@ export function OnboardingScreen({ onComplete }: Props) {
         </View>
       </View>
 
-      <TextInput
-        style={styles.input}
-        value={query}
-        onChangeText={setQuery}
-        placeholder="Search NZ postcode or town (e.g. 5011, Queenstown, Whangārei)"
-        placeholderTextColor="#64748B"
-      />
+      <View style={styles.searchRow}>
+        <TextInput
+          style={[styles.input, { flex: 1 }]}
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Search NZ postcode or town (e.g. 5011, Queenstown, Whangārei)"
+          placeholderTextColor="#64748B"
+        />
+        {query.length > 0 && (
+          <Pressable style={styles.clearBtn} onPress={() => setQuery('')}>
+            <Text style={styles.clearBtnText}>✕</Text>
+          </Pressable>
+        )}
+      </View>
 
       <View style={styles.chipRow}>
         {matches.slice(0, 8).map((item) => {
@@ -339,5 +346,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 4
   },
-  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' }
+  primaryBtnText: { color: '#FFFFFF', fontSize: 16, fontWeight: '700' },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  clearBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  clearBtnText: { fontSize: 13, fontWeight: '800', color: '#334155' }
 });

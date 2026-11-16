@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
+  RefreshControl,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -135,6 +136,7 @@ export default function App() {
   const [pinnedCareTasks, setPinnedCareTasks] = useState<CareTask[]>([]);
   const [showRestrictionPicker, setShowRestrictionPicker] = useState(false);
   const [showLocationPicker, setShowLocationPicker] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const loadWorkspace = async (active: GardenProfile) => {
     let userZones = await listZonesForProfile(active.id);
@@ -406,7 +408,19 @@ export default function App() {
         )}
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView
+        contentContainerStyle={styles.body}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            tintColor="#166534"
+            onRefresh={() => {
+              setRefreshing(true);
+              void loadWorkspace(profile).finally(() => setRefreshing(false));
+            }}
+          />
+        }
+      >
         {tab === 'Today' && (
           <>
             <ScrollView
@@ -567,11 +581,25 @@ export default function App() {
                   <Text style={styles.cardText}>{rec.headline}</Text>
                   <Text style={styles.cardMeta}>{rec.reason}</Text>
                   {rec.rainwaterTip && <Text style={styles.rainwaterTip}>💧 {rec.rainwaterTip}</Text>}
-                  {rec.totalZoneLitres > 0 && (
-                    <Pressable style={styles.btn} onPress={() => handleMarkWatered(rec)}>
-                      <Text style={styles.btnText}>Mark Watered ({rec.totalZoneLitres}L)</Text>
+                  <View style={styles.rowBetween}>
+                    {rec.totalZoneLitres > 0 ? (
+                      <Pressable style={[styles.btn, { flex: 1 }]} onPress={() => handleMarkWatered(rec)}>
+                        <Text style={styles.btnText}>Mark Watered ({rec.totalZoneLitres}L)</Text>
+                      </Pressable>
+                    ) : (
+                      <View style={{ flex: 1 }} />
+                    )}
+                    <Pressable
+                      style={styles.openBedBtn}
+                      onPress={() => {
+                        setSelectedGardenZoneId(rec.zoneId);
+                        setGardenSubTab('Beds');
+                        setTab('Garden');
+                      }}
+                    >
+                      <Text style={styles.openBedBtnText}>🌱 Open Bed</Text>
                     </Pressable>
-                  )}
+                  </View>
                 </View>
               );
             })}
@@ -579,7 +607,8 @@ export default function App() {
             <View style={styles.sectionHeaderRow}>
               <Text style={styles.sectionTitle}>Proactive NZ Care Feed</Text>
               <Text style={styles.sectionCount}>
-                {pinnedCareTasks.length + careTasks.length} tasks
+                {[...pinnedCareTasks, ...careTasks].filter((t) => completedTaskIds[t.id]).length}/
+                {pinnedCareTasks.length + careTasks.length} done
               </Text>
             </View>
             {[...pinnedCareTasks, ...careTasks].map((task) => {
@@ -698,21 +727,32 @@ export default function App() {
               <Text style={styles.sectionTitle}>NZ Plant & Biosecurity Catalog</Text>
               <Text style={styles.sectionCount}>{filteredCatalog.length} species</Text>
             </View>
-            <TextInput
-              style={styles.searchInput}
-              value={catalogQuery}
-              onChangeText={setCatalogQuery}
-              placeholder="Search common name, Te Reo, botanical, or family..."
-              placeholderTextColor="#64748B"
-            />
+            <View style={styles.searchRow}>
+              <TextInput
+                style={[styles.searchInput, { flex: 1 }]}
+                value={catalogQuery}
+                onChangeText={setCatalogQuery}
+                placeholder="Search common name, Te Reo, botanical, or family..."
+                placeholderTextColor="#64748B"
+              />
+              {catalogQuery.length > 0 && (
+                <Pressable style={styles.searchClearBtn} onPress={() => setCatalogQuery('')}>
+                  <Text style={styles.searchClearBtnText}>✕</Text>
+                </Pressable>
+              )}
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
               {CATALOG_CATEGORIES.map((cat) => {
                 const active = catalogCategory === cat;
+                const isNppa = cat === 'NPPA Weed';
                 return (
                   <Pressable
                     key={cat}
                     onPress={() => setCatalogCategory(cat)}
-                    style={[styles.filterChip, active && styles.filterChipActive]}
+                    style={[
+                      styles.filterChip,
+                      active && (isNppa ? styles.filterChipNppaActive : styles.filterChipActive)
+                    ]}
                   >
                     <Text style={[styles.filterChipText, active && styles.filterChipTextActive]}>
                       {cat}
@@ -848,23 +888,38 @@ export default function App() {
                   <Text style={styles.sectionTitle}>NZ Pest & Disease Field Guide</Text>
                   <Text style={styles.sectionCount}>{filteredPests.length} entries</Text>
                 </View>
-                <TextInput
-                  style={styles.searchInput}
-                  value={pestQuery}
-                  onChangeText={setPestQuery}
-                  placeholder="Search pest, host plant (e.g. Feijoa, Tomato), or symptom..."
-                  placeholderTextColor="#64748B"
-                />
+                <View style={styles.searchRow}>
+                  <TextInput
+                    style={[styles.searchInput, { flex: 1 }]}
+                    value={pestQuery}
+                    onChangeText={setPestQuery}
+                    placeholder="Search pest, host plant (e.g. Feijoa, Tomato), or symptom..."
+                    placeholderTextColor="#64748B"
+                  />
+                  {pestQuery.length > 0 && (
+                    <Pressable style={styles.searchClearBtn} onPress={() => setPestQuery('')}>
+                      <Text style={styles.searchClearBtnText}>✕</Text>
+                    </Pressable>
+                  )}
+                </View>
                 {filteredPests.length === 0 ? (
                   <View style={styles.emptyCard}>
                     <Text style={styles.emptyTitle}>No matching pests or diseases</Text>
                     <Text style={styles.emptySub}>
-                      Try searching by host plant (e.g. Tomato, Citrus, Feijoa) or symptom, or
-                      clear the filter.
+                      Try searching by host plant (e.g. Tomato, Citrus, Feijoa), clear the filter, or
+                      scan a photo with Vision AI.
                     </Text>
-                    <Pressable style={styles.clearBtn} onPress={() => setPestQuery('')}>
-                      <Text style={styles.clearBtnText}>Clear filter</Text>
-                    </Pressable>
+                    <View style={styles.rowBetween}>
+                      <Pressable style={styles.clearBtn} onPress={() => setPestQuery('')}>
+                        <Text style={styles.clearBtnText}>Clear filter</Text>
+                      </Pressable>
+                      <Pressable
+                        style={styles.openBedBtn}
+                        onPress={() => setPestSubTab('AI')}
+                      >
+                        <Text style={styles.openBedBtnText}>📷 Scan with AI</Text>
+                      </Pressable>
+                    </View>
                   </View>
                 ) : (
                   filteredPests.map((pest) => (
@@ -1230,5 +1285,27 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     borderRadius: 999
   },
-  specPillText: { fontSize: 11, fontWeight: '600', color: '#334155' }
+  specPillText: { fontSize: 11, fontWeight: '600', color: '#334155' },
+  openBedBtn: {
+    marginTop: 6,
+    backgroundColor: '#F0FDF4',
+    borderWidth: 1,
+    borderColor: '#86EFAC',
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    alignItems: 'center'
+  },
+  openBedBtnText: { color: '#14532D', fontWeight: '700', fontSize: 12 },
+  searchRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  searchClearBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#E2E8F0',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  searchClearBtnText: { fontSize: 13, fontWeight: '800', color: '#334155' },
+  filterChipNppaActive: { backgroundColor: '#B91C1C' }
 });

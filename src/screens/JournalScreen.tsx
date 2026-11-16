@@ -393,39 +393,49 @@ export function JournalScreen({
               </Pressable>
             </View>
 
-            {diagnoses.slice(0, 3).map((d) => {
-              const pinned = Boolean(pinnedDiagnosisIds[d.id]);
-              return (
-                <View key={d.id} style={[styles.subCard, d.isNppaWeed && styles.nppaBox]}>
-                  <View style={styles.rowBetween}>
-                    <Text style={[styles.cardTitle, { flex: 1 }]}>
-                      {d.isNppaWeed ? '⚠️ ' : ''}
-                      {d.topDiagnosis} ({Math.round(d.confidence * 100)}%)
-                    </Text>
-                    {onPinCareNote && (
-                      <Pressable
-                        onPress={() => {
-                          if (pinned) return;
-                          onPinCareNote(
-                            `Action: ${d.topDiagnosis}`,
-                            d.treatmentSteps[0] ?? d.nppaGuidance ?? 'Inspect affected plants.'
-                          );
-                          setPinnedDiagnosisIds((prev) => ({ ...prev, [d.id]: true }));
-                        }}
-                        style={styles.pinBtn}
-                      >
-                        <Text style={styles.pinBtnText}>{pinned ? '✓ Pinned' : '📌 Pin to Today'}</Text>
-                      </Pressable>
-                    )}
+            {diagnoses.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyStateIcon}>🔍</Text>
+                <Text style={styles.emptyStateTitle}>No scans yet</Text>
+                <Text style={styles.emptyStateText}>
+                  Tap a 1-tap symptom chip or take a photo to identify pests, diseases, or NPPA weeds.
+                </Text>
+              </View>
+            ) : (
+              diagnoses.slice(0, 3).map((d) => {
+                const pinned = Boolean(pinnedDiagnosisIds[d.id]);
+                return (
+                  <View key={d.id} style={[styles.subCard, d.isNppaWeed && styles.nppaBox]}>
+                    <View style={styles.rowBetween}>
+                      <Text style={[styles.cardTitle, { flex: 1 }]}>
+                        {d.isNppaWeed ? '⚠️ ' : ''}
+                        {d.topDiagnosis} ({Math.round(d.confidence * 100)}%)
+                      </Text>
+                      {onPinCareNote && (
+                        <Pressable
+                          onPress={() => {
+                            if (pinned) return;
+                            onPinCareNote(
+                              `Action: ${d.topDiagnosis}`,
+                              d.treatmentSteps[0] ?? d.nppaGuidance ?? 'Inspect affected plants.'
+                            );
+                            setPinnedDiagnosisIds((prev) => ({ ...prev, [d.id]: true }));
+                          }}
+                          style={styles.pinBtn}
+                        >
+                          <Text style={styles.pinBtnText}>{pinned ? '✓ Pinned' : '📌 Pin to Today'}</Text>
+                        </Pressable>
+                      )}
+                    </View>
+                    {d.treatmentSteps.map((step) => (
+                      <Text key={step} style={styles.cardText}>
+                        • {step}
+                      </Text>
+                    ))}
                   </View>
-                  {d.treatmentSteps.map((step) => (
-                    <Text key={step} style={styles.cardText}>
-                      • {step}
-                    </Text>
-                  ))}
-                </View>
-              );
-            })}
+                );
+              })
+            )}
           </View>
         </>
       )}
@@ -464,6 +474,28 @@ export function JournalScreen({
                 </View>
               </View>
               <View style={styles.card}>
+                {zones.length > 0 && (
+                  <>
+                    <Text style={styles.subLabel}>Bed / Zone</Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
+                      {zones.map((z) => {
+                        const active = harvestZoneId === z.id;
+                        return (
+                          <Pressable
+                            key={z.id}
+                            onPress={() => setHarvestZoneId(z.id)}
+                            style={[styles.chip, active && styles.chipActive]}
+                          >
+                            <Text style={[styles.chipText, active && styles.chipTextActive]}>
+                              {z.name}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </>
+                )}
+
                 <Text style={styles.subLabel}>Crop</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll}>
                   {edibleSpecies.map((sp) => {

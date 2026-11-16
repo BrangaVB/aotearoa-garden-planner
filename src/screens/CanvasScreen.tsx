@@ -397,20 +397,28 @@ export function CanvasScreen({
 
             return (
               <React.Fragment key={obs.id}>
-                {solar.isDaylight && shadow.lengthCm > 0 && (
-                  <View
-                    pointerEvents="none"
-                    style={[
-                      styles.shadowBox,
-                      {
-                        left: Math.max(0, left + shadow.dxCm * PX_PER_CM),
-                        top: Math.max(0, top + shadow.dyCm * PX_PER_CM),
-                        width,
-                        height
-                      }
-                    ]}
-                  />
-                )}
+                {solar.isDaylight && shadow.lengthCm > 0 && (() => {
+                  const dxPx = shadow.dxCm * PX_PER_CM;
+                  const dyPx = shadow.dyCm * PX_PER_CM;
+                  const sLeft = Math.max(0, left + Math.min(0, dxPx));
+                  const sTop = Math.max(0, top + Math.min(0, dyPx));
+                  const sWidth = Math.min(CANVAS_WIDTH_PX - sLeft, width + Math.abs(dxPx));
+                  const sHeight = Math.min(CANVAS_HEIGHT_PX - sTop, height + Math.abs(dyPx));
+                  return (
+                    <View
+                      pointerEvents="none"
+                      style={[
+                        styles.shadowBox,
+                        {
+                          left: sLeft,
+                          top: sTop,
+                          width: sWidth,
+                          height: sHeight
+                        }
+                      ]}
+                    />
+                  );
+                })()}
                 <DraggableCanvasItem
                   xCm={curXCm}
                   yCm={curYCm}
@@ -527,12 +535,31 @@ export function CanvasScreen({
       </View>
 
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Daily Sun Exposure ({SEASONS.find((s) => s.value === season)?.label ?? season})</Text>
-        {zoneSunSummaries.map(({ zone, sun }) => (
-          <Text key={zone.id} style={styles.cardText}>
-            • {zone.name}: {sun.sunlitHours} hrs/day — <Text style={styles.bold}>{sun.classification}</Text>
-          </Text>
-        ))}
+        <Text style={styles.cardTitle}>
+          Daily Sun Exposure ({SEASONS.find((s) => s.value === season)?.label ?? season})
+        </Text>
+        {zoneSunSummaries.map(({ zone, sun }) => {
+          const isFull = sun.sunlitHours >= 6;
+          const isPart = sun.sunlitHours >= 3.5 && sun.sunlitHours < 6;
+          return (
+            <View key={zone.id} style={styles.sunSummaryRow}>
+              <Text style={styles.cardText}>
+                <Text style={styles.bold}>{zone.name}</Text> · {sun.sunlitHours} hrs/day
+              </Text>
+              <View
+                style={[
+                  styles.sunClassPill,
+                  isFull ? styles.sunPillFull : isPart ? styles.sunPillPart : styles.sunPillShade
+                ]}
+              >
+                <Text style={styles.sunClassPillText}>
+                  {isFull ? '☀️ ' : isPart ? '⛅ ' : '🌑 '}
+                  {sun.classification}
+                </Text>
+              </View>
+            </View>
+          );
+        })}
       </View>
 
       <View style={styles.card}>
@@ -882,5 +909,21 @@ const styles = StyleSheet.create({
   },
   primaryBtnText: { color: '#FFFFFF', fontWeight: '700', fontSize: 13 },
   obsRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  removeLink: { color: '#B91C1C', fontSize: 12, fontWeight: '700' }
+  removeLink: { color: '#B91C1C', fontSize: 12, fontWeight: '700' },
+  sunSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 2
+  },
+  sunClassPill: {
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 999
+  },
+  sunPillFull: { backgroundColor: '#DCFCE7' },
+  sunPillPart: { backgroundColor: '#FEF3C7' },
+  sunPillShade: { backgroundColor: '#E2E8F0' },
+  sunClassPillText: { fontSize: 11, fontWeight: '700', color: '#0F172A' }
 });

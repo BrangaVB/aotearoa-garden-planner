@@ -727,10 +727,20 @@ export function BedBuilderScreen({
             </View>
           )}
 
+          {quickPaintMode && (
+            <View style={styles.quickPaintBanner}>
+              <Text style={styles.quickPaintBannerText}>
+                🖌️ Quick Paint Active — tap any empty soil cell to plant{' '}
+                {selectedSpecies?.commonName ?? 'selected plant'} in 1 tap.
+              </Text>
+            </View>
+          )}
+
           <View style={styles.timberFrame}>
             <View style={styles.soilTopRow}>
               <Text style={styles.soilTitle}>
-                25 cm Grid ({grid.rows}×{grid.cols}){grid.cols > 5 ? ' · ← Scroll →' : ''}
+                25 cm Grid ({activePlantings.length}/
+                {Math.min(grid.rows, 6) * Math.min(grid.cols, 8)}){grid.cols > 5 ? ' · ← Scroll →' : ''}
               </Text>
               <View style={styles.aspectBadge}>
                 <Text style={styles.aspectBadgeText}>☀️ {activeZone.sunAspect}</Text>
@@ -1341,5 +1351,18 @@ const styles = StyleSheet.create({
   warningText: { fontSize: 12, color: '#B45309', fontWeight: '600' },
   rotationText: { fontSize: 12, color: '#1D4ED8', fontWeight: '600' },
   neutralFeedbackText: { fontSize: 12, color: '#15803D', fontWeight: '600' },
-  errorText: { fontSize: 12, color: '#DC2626', fontWeight: '700' }
+  errorText: { fontSize: 12, color: '#DC2626', fontWeight: '700' },
+  quickPaintBanner: {
+    backgroundColor: '#FFFBEB',
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 7
+  },
+  quickPaintBannerText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#92400E'
+  }
 });
